@@ -351,6 +351,111 @@ Returns an `ApiResponse` object:
 
 ---
 
+## Create Tools in Batch
+
+Create multiple API tools in a single request for efficient bulk registration.
+
+### Request
+
+```bash
+curl -X POST "http://localhost:8080/admin/tools/api/batch" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '[
+    {
+      "name": "GitHub Create Issue",
+      "code": "github_create_issue",
+      "enabled": true,
+      "description": "Creates a new issue in a GitHub repository",
+      "providerId": 5,
+      "endpointPath": "/repos/{owner}/{repo}/issues",
+      "httpMethod": "POST",
+      "parameters": [
+        {
+          "name": "owner",
+          "type": "STRING",
+          "description": "Repository owner",
+          "required": true
+        },
+        {
+          "name": "repo",
+          "type": "STRING",
+          "description": "Repository name",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "STRING",
+          "description": "Issue title",
+          "required": true
+        },
+        {
+          "name": "body",
+          "type": "STRING",
+          "description": "Issue description",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "GitHub List PRs",
+      "code": "github_list_prs",
+      "enabled": true,
+      "description": "List pull requests in a repository",
+      "providerId": 5,
+      "endpointPath": "/repos/{owner}/{repo}/pulls",
+      "httpMethod": "GET",
+      "parameters": [
+        {
+          "name": "owner",
+          "type": "STRING",
+          "description": "Repository owner",
+          "required": true
+        },
+        {
+          "name": "repo",
+          "type": "STRING",
+          "description": "Repository name",
+          "required": true
+        }
+      ]
+    }
+  ]'
+```
+
+### Request Body
+
+Array of `CreateApiToolRequest` objects (same structure as single tool creation).
+
+### Response
+
+<ResponseField name="status" type="integer">
+  HTTP status code (200 for success)
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Success message indicating the number of tools created
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "status": 200,
+  "message": "2 tools creadas correctamente"
+}
+```
+
+<Tip>
+Use batch creation when importing multiple tools from a provider. This is more efficient than creating tools one-by-one and reduces database transactions.
+</Tip>
+
+<Note>
+The batch endpoint is particularly useful when paired with the Import/Export API for migrating tool configurations between environments.
+</Note>
+
+---
+
 ## Update Tool
 
 Update an existing API tool definition.

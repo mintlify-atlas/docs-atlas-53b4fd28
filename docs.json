@@ -66,7 +66,8 @@
               "use-cases/social-media",
               "use-cases/email",
               "use-cases/search",
-              "use-cases/github"
+              "use-cases/github",
+              "use-cases/jules-agent"
             ]
           }
         ]
@@ -87,7 +88,14 @@
             "pages": [
               "api/admin/overview",
               "api/admin/tools",
-              "api/admin/providers"
+              "api/admin/providers",
+              "api/admin/analytics"
+            ]
+          },
+          {
+            "group": "Task Memory API",
+            "pages": [
+              "api/memory/overview"
             ]
           },
           {

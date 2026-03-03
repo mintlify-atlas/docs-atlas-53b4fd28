@@ -1,0 +1,217 @@
+---
+title: 'Task Memory API'
+description: 'Manage persistent task memory for agent workflows'
+api: 'GET /api/v1/memory/tasks'
+---
+
+## Overview
+
+The Task Memory API provides persistent storage for agent task management. It allows LLMs and AI agents to track pending and completed tasks across sessions.
+
+<Info>
+Task memory is useful for multi-step workflows where agents need to remember context between tool executions.
+</Info>
+
+---
+
+## List Pending Tasks
+
+Retrieve all tasks that are currently pending completion.
+
+### Request
+
+```bash
+curl -X GET "http://localhost:8080/api/v1/memory/tasks" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Response
+
+Returns an array of `TaskMemory` objects:
+
+<ResponseField name="id" type="Long">
+  Unique task identifier
+</ResponseField>
+
+<ResponseField name="title" type="string">
+  Task title or description
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Task status. Possible values:
+  - `PENDING`
+  - `IN_PROGRESS`
+  - `COMPLETED`
+  - `FAILED`
+</ResponseField>
+
+<ResponseField name="priority" type="string">
+  Task priority. Possible values:
+  - `LOW`
+  - `MEDIUM`
+  - `HIGH`
+  - `URGENT`
+</ResponseField>
+
+<ResponseField name="createdAt" type="Instant">
+  Timestamp when the task was created (ISO-8601)
+</ResponseField>
+
+<ResponseField name="updatedAt" type="Instant">
+  Timestamp when the task was last updated (ISO-8601)
+</ResponseField>
+
+<ResponseField name="metadata" type="object">
+  Additional task metadata (JSON object)
+</ResponseField>
+
+### Example Response
+
+```json
+[
+  {
+    "id": 42,
+    "title": "Deploy new API endpoint to production",
+    "status": "PENDING",
+    "priority": "HIGH",
+    "createdAt": "2026-03-03T10:30:00Z",
+    "updatedAt": "2026-03-03T10:30:00Z",
+    "metadata": {
+      "assignedTo": "ai-agent-001",
+      "estimatedDuration": "30m"
+    }
+  },
+  {
+    "id": 43,
+    "title": "Update documentation for new features",
+    "status": "PENDING",
+    "priority": "MEDIUM",
+    "createdAt": "2026-03-03T11:15:00Z",
+    "updatedAt": "2026-03-03T11:15:00Z",
+    "metadata": {
+      "relatedFiles": ["README.md", "API.md"]
+    }
+  }
+]
+```
+
+---
+
+## List Completed Tasks
+
+Retrieve all tasks that have been marked as completed.
+
+### Request
+
+```bash
+curl -X GET "http://localhost:8080/api/v1/memory/tasks/completed" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Response
+
+Returns an array of completed `TaskMemory` objects with the same structure as pending tasks.
+
+### Example Response
+
+```json
+[
+  {
+    "id": 38,
+    "title": "Generate monthly analytics report",
+    "status": "COMPLETED",
+    "priority": "MEDIUM",
+    "createdAt": "2026-03-01T09:00:00Z",
+    "updatedAt": "2026-03-01T14:30:00Z",
+    "metadata": {
+      "completedBy": "ai-agent-001",
+      "outputFile": "reports/2026-02-analytics.pdf"
+    }
+  }
+]
+```
+
+---
+
+## Delete Task
+
+Remove a task from memory by its ID.
+
+### Request
+
+```bash
+curl -X DELETE "http://localhost:8080/api/v1/memory/tasks/42" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Path Parameters
+
+<ParamField path="id" type="Long" required>
+  Unique identifier of the task to delete
+</ParamField>
+
+### Response
+
+Returns HTTP 204 No Content on successful deletion.
+
+<Warning>
+Task deletion is permanent and cannot be undone. Ensure you have any necessary data from the task before deleting it.
+</Warning>
+
+---
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Multi-Step Workflows" icon="list-check">
+    Track progress on complex tasks that span multiple tool executions
+  </Card>
+  
+  <Card title="Session Persistence" icon="clock">
+    Remember context between agent sessions for long-running projects
+  </Card>
+  
+  <Card title="Task Prioritization" icon="arrow-up-1-9">
+    Organize and prioritize work for autonomous agents
+  </Card>
+  
+  <Card title="Audit History" icon="clock-rotate-left">
+    Review completed tasks to understand agent activity over time
+  </Card>
+</CardGroup>
+
+---
+
+## Example Agent Workflow
+
+Here's how an AI agent might use the Task Memory API:
+
+<Steps>
+  <Step title="List pending tasks">
+    Agent retrieves pending tasks to determine what work needs to be done
+    
+    ```bash
+    GET /api/v1/memory/tasks
+    ```
+  </Step>
+  
+  <Step title="Execute highest priority task">
+    Agent processes the most urgent pending task using appropriate tools
+  </Step>
+  
+  <Step title="Mark task as completed">
+    After successful completion, agent updates task status (via internal service)
+  </Step>
+  
+  <Step title="Clean up old tasks">
+    Periodically delete completed tasks that are no longer needed
+    
+    ```bash
+    DELETE /api/v1/memory/tasks/{id}
+    ```
+  </Step>
+</Steps>
+
+<Note>
+Task creation and status updates are typically managed through internal services rather than direct API calls. The API provides read and delete operations for agent task management.
+</Note>

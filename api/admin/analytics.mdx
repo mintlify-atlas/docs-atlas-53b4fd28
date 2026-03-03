@@ -1,0 +1,242 @@
+---
+title: 'Analytics & Logging'
+description: 'View tool execution metrics and logs'
+api: 'GET /admin/analytics/summary'
+---
+
+## Get Analytics Summary
+
+Retrieve aggregated metrics about tool execution over a specified time period.
+
+### Request
+
+```bash
+curl -X GET "http://localhost:8080/admin/analytics/summary?days=30" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Query Parameters
+
+<ParamField query="days" type="integer" default="30">
+  Number of days to include in the summary metrics
+</ParamField>
+
+### Response
+
+Returns an `AnalyticsSummaryResponse` object with aggregated metrics:
+
+<ResponseField name="totalExecutions" type="Long">
+  Total number of tool executions in the specified period
+</ResponseField>
+
+<ResponseField name="successfulExecutions" type="Long">
+  Number of successful tool executions
+</ResponseField>
+
+<ResponseField name="failedExecutions" type="Long">
+  Number of failed tool executions
+</ResponseField>
+
+<ResponseField name="successRate" type="Double">
+  Percentage of successful executions (0-100)
+</ResponseField>
+
+<ResponseField name="averageExecutionTime" type="Double">
+  Average execution time in milliseconds
+</ResponseField>
+
+<ResponseField name="mostUsedTools" type="array">
+  Array of the most frequently executed tools with usage counts
+</ResponseField>
+
+<ResponseField name="periodStart" type="Instant">
+  Start timestamp of the analytics period (ISO-8601)
+</ResponseField>
+
+<ResponseField name="periodEnd" type="Instant">
+  End timestamp of the analytics period (ISO-8601)
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "totalExecutions": 1247,
+  "successfulExecutions": 1198,
+  "failedExecutions": 49,
+  "successRate": 96.07,
+  "averageExecutionTime": 342.5,
+  "mostUsedTools": [
+    {
+      "toolName": "GitHub Create Issue",
+      "executionCount": 342
+    },
+    {
+      "toolName": "Resend Email",
+      "executionCount": 289
+    }
+  ],
+  "periodStart": "2026-02-01T00:00:00Z",
+  "periodEnd": "2026-03-03T23:59:59Z"
+}
+```
+
+<Note>
+Analytics data is retained based on the log retention policy configured in the system.
+</Note>
+
+---
+
+## Get Execution Logs
+
+Retrieve paginated execution logs for tool calls with detailed request/response information.
+
+### Request
+
+```bash
+curl -X GET "http://localhost:8080/admin/analytics/logs?page=0&size=20" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Query Parameters
+
+<ParamField query="page" type="integer" default="0">
+  Page number (zero-indexed)
+</ParamField>
+
+<ParamField query="size" type="integer" default="20">
+  Number of records per page
+</ParamField>
+
+<ParamField query="sort" type="string" default="executedAt,desc">
+  Sort order (e.g., "executedAt,desc" or "executionTime,asc")
+</ParamField>
+
+### Response
+
+Returns a paginated `Page<ToolExecutionLogResponse>` object:
+
+<ResponseField name="content" type="array">
+  Array of tool execution log entries
+  
+  <Expandable title="ToolExecutionLogResponse properties">
+    <ResponseField name="id" type="Long">
+      Unique log entry identifier
+    </ResponseField>
+    
+    <ResponseField name="toolName" type="string">
+      Name of the executed tool
+    </ResponseField>
+    
+    <ResponseField name="toolCode" type="string">
+      Code identifier of the tool
+    </ResponseField>
+    
+    <ResponseField name="executedAt" type="Instant">
+      Timestamp when the tool was executed (ISO-8601)
+    </ResponseField>
+    
+    <ResponseField name="executionTime" type="Long">
+      Execution duration in milliseconds
+    </ResponseField>
+    
+    <ResponseField name="success" type="boolean">
+      Whether the execution was successful
+    </ResponseField>
+    
+    <ResponseField name="statusCode" type="Integer">
+      HTTP status code returned by the external API
+    </ResponseField>
+    
+    <ResponseField name="requestPayload" type="string">
+      JSON representation of the request sent to the external API
+    </ResponseField>
+    
+    <ResponseField name="responseBody" type="string">
+      Response body received from the external API
+    </ResponseField>
+    
+    <ResponseField name="errorMessage" type="string">
+      Error message if the execution failed
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="pageable" type="object">
+  Pagination information
+</ResponseField>
+
+<ResponseField name="totalElements" type="Long">
+  Total number of log entries
+</ResponseField>
+
+<ResponseField name="totalPages" type="Integer">
+  Total number of pages
+</ResponseField>
+
+<ResponseField name="size" type="Integer">
+  Page size
+</ResponseField>
+
+<ResponseField name="number" type="Integer">
+  Current page number
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "content": [
+    {
+      "id": 12847,
+      "toolName": "GitHub Create Issue",
+      "toolCode": "github-create-issue",
+      "executedAt": "2026-03-03T15:42:18Z",
+      "executionTime": 423,
+      "success": true,
+      "statusCode": 201,
+      "requestPayload": "{\"title\":\"Bug: API timeout\",\"body\":\"...\"}",
+      "responseBody": "{\"id\":789,\"number\":42,\"state\":\"open\"}",
+      "errorMessage": null
+    }
+  ],
+  "pageable": {
+    "pageNumber": 0,
+    "pageSize": 20,
+    "sort": {
+      "sorted": true,
+      "unsorted": false
+    }
+  },
+  "totalElements": 1247,
+  "totalPages": 63,
+  "size": 20,
+  "number": 0
+}
+```
+
+<Tip>
+Use execution logs for debugging tool failures, monitoring API response times, and auditing tool usage.
+</Tip>
+
+---
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Monitor Performance" icon="gauge">
+    Track average execution times to identify slow endpoints
+  </Card>
+  
+  <Card title="Debug Failures" icon="bug">
+    Inspect request/response payloads to troubleshoot failed executions
+  </Card>
+  
+  <Card title="Usage Analytics" icon="chart-line">
+    Identify most-used tools to optimize caching and scaling
+  </Card>
+  
+  <Card title="Audit Trail" icon="list-check">
+    Maintain compliance logs of all external API interactions
+  </Card>
+</CardGroup>

@@ -10,6 +10,7 @@ The Admin API provides programmatic access to manage tools and providers in Hand
 - **Manage Tools**: Create, update, retrieve, and delete API tool definitions
 - **Manage Providers**: Configure external API providers with authentication settings
 - **Validate Health**: Check tool endpoint availability
+- **View Analytics**: Track execution metrics and logs for monitoring and debugging
 
 The Admin API is designed for **transactional, one-by-one operations** through the UI or external integrations.
 
@@ -21,6 +22,7 @@ For bulk operations, use the [Import/Export API](/api/import-export/overview) wh
 
 - **Tools**: `/admin/tools/api`
 - **Providers**: `/admin/providers`
+- **Analytics**: `/admin/analytics`
 
 ## Authentication
 
@@ -47,6 +49,7 @@ Authentication implementation details depend on your HandsAI deployment configur
 | Update tool | PUT | `/admin/tools/api/{id}` |
 | Delete tool | DELETE | `/admin/tools/api/{id}` |
 | Validate health | POST | `/admin/tools/api/{id}/validate` |
+| Create batch | POST | `/admin/tools/api/batch` |
 
 ### Providers Management
 
@@ -58,13 +61,23 @@ Authentication implementation details depend on your HandsAI deployment configur
 | Update provider | PUT | `/admin/providers/{id}` |
 | Delete provider | DELETE | `/admin/providers/{id}` |
 
+### Analytics & Monitoring
+
+| Operation | Method | Endpoint |
+|-----------|--------|----------|
+| Get summary metrics | GET | `/admin/analytics/summary` |
+| Get execution logs | GET | `/admin/analytics/logs` |
+
 ## Next Steps
 
-<CardGroup cols={2}>
+<CardGroup cols={3}>
   <Card title="Tool Management" icon="wrench" href="/api/admin/tools">
     Manage API tool definitions and configurations
   </Card>
   <Card title="Provider Management" icon="server" href="/api/admin/providers">
     Configure external API providers and authentication
+  </Card>
+  <Card title="Analytics & Logs" icon="chart-line" href="/api/admin/analytics">
+    View execution metrics and troubleshoot issues
   </Card>
 </CardGroup>
