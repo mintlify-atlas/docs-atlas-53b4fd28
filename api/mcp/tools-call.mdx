@@ -1,0 +1,351 @@
+---
+title: POST /mcp/tools/call
+description: Execute a registered tool with provided arguments
+api: POST /mcp/tools/call
+---
+
+## Endpoint Details
+
+**Method**: `POST`  
+**Path**: `/mcp/tools/call`  
+**Authentication**: None required (public endpoint)  
+**Content-Type**: `application/json`
+
+## Purpose
+
+Executes a tool registered in HandsAI by invoking its underlying REST API with the provided arguments. The tool name must match one of the tools returned by `/mcp/tools/list`.
+
+HandsAI:
+1. Validates the request structure
+2. Resolves the tool definition from the database/cache
+3. Makes the HTTP request to the configured REST API endpoint
+4. Returns the response wrapped in JSON-RPC format
+
+## Request Schema
+
+The request body must follow JSON-RPC 2.0 format:
+
+<ParamField path="jsonrpc" type="string" required>
+  Must be `"2.0"` (JSON-RPC protocol version)
+</ParamField>
+
+<ParamField path="method" type="string" required>
+  Must be `"tools/call"` for tool execution requests
+</ParamField>
+
+<ParamField path="params" type="object" required>
+  Contains the tool execution parameters
+  
+  <Expandable title="params properties">
+    <ParamField path="params.name" type="string" required>
+      The unique name/code of the tool to execute (must match a tool from `/mcp/tools/list`)
+    </ParamField>
+    
+    <ParamField path="params.arguments" type="object" required>
+      Key-value map of arguments to pass to the tool. Keys must match parameter names defined in the tool's `inputSchema`.
+      
+      Values can be:
+      - `string`: For text parameters
+      - `number`: For numeric parameters
+      - `boolean`: For true/false flags
+      - `array`: For list parameters
+      - `object`: For nested structures
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="id" type="string | number">
+  Optional request identifier. If provided, it will be echoed in the response to correlate requests and responses.
+</ParamField>
+
+## Response Schema
+
+### Success Response
+
+<ResponseField name="jsonrpc" type="string" required>
+  Always `"2.0"`
+</ResponseField>
+
+<ResponseField name="result" type="object" required>
+  Contains the tool execution result
+  
+  <Expandable title="result properties">
+    <ResponseField name="content" type="array" required>
+      Array of content items (typically contains one text element)
+      
+      <Expandable title="content item">
+        <ResponseField name="type" type="string" required>
+          Content type (always `"text"` in current implementation)
+        </ResponseField>
+        
+        <ResponseField name="text" type="string" required>
+          The tool execution result as a string. This is the `toString()` representation of the REST API response.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="id" type="string | number">
+  Echoed from the request if provided
+</ResponseField>
+
+### Error Response
+
+<ResponseField name="jsonrpc" type="string" required>
+  Always `"2.0"`
+</ResponseField>
+
+<ResponseField name="error" type="object" required>
+  Error details (replaces `result` on failure)
+  
+  <Expandable title="error properties">
+    <ResponseField name="code" type="integer" required>
+      JSON-RPC error code:
+      - `-32602`: Invalid params (missing/malformed parameters)
+      - `-32603`: Internal error (execution failure)
+    </ResponseField>
+    
+    <ResponseField name="message" type="string" required>
+      Human-readable error description
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="id" type="string | number">
+  Echoed from the request if provided
+</ResponseField>
+
+## Examples
+
+### Example 1: Weather Tool
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "weather_get",
+    "arguments": {
+      "location": "San Francisco",
+      "units": "celsius"
+    }
+  },
+  "id": "weather-123"
+}
+```
+
+**Success Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"temperature\": 18, \"condition\": \"Partly cloudy\", \"humidity\": 65}"
+      }
+    ]
+  },
+  "id": "weather-123"
+}
+```
+
+### Example 2: Document Search with Array Parameter
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "search_documents",
+    "arguments": {
+      "query": "quarterly revenue",
+      "tags": ["finance", "2024"],
+      "limit": 10
+    }
+  },
+  "id": "search-456"
+}
+```
+
+**Success Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[{\"id\": \"doc-1\", \"title\": \"Q4 2024 Revenue Report\"}, {\"id\": \"doc-2\", \"title\": \"Q3 2024 Financial Summary\"}]"
+      }
+    ]
+  },
+  "id": "search-456"
+}
+```
+
+### Example 3: Invalid Parameters Error
+
+**Request (missing required parameter):**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "weather_get",
+    "arguments": {
+      "units": "celsius"
+    }
+  },
+  "id": "error-789"
+}
+```
+
+**Error Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32602,
+    "message": "Invalid params: location is required"
+  },
+  "id": "error-789"
+}
+```
+
+### Example 4: Missing Request Body
+
+**Request:**
+```json
+null
+```
+
+**Error Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32602,
+    "message": "Invalid params: missing required parameters"
+  }
+}
+```
+
+### Example 5: Tool Execution Failure
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "database_query",
+    "arguments": {
+      "sql": "SELECT * FROM users"
+    }
+  },
+  "id": "fail-101"
+}
+```
+
+**Error Response (if underlying API fails):**
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32603,
+    "message": "Internal error: Connection timeout"
+  },
+  "id": "fail-101"
+}
+```
+
+## cURL Examples
+
+### Basic Tool Call
+
+```bash
+curl -X POST http://localhost:8080/mcp/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "weather_get",
+      "arguments": {
+        "location": "New York",
+        "units": "fahrenheit"
+      }
+    },
+    "id": "1"
+  }'
+```
+
+### Tool Call with Array Arguments
+
+```bash
+curl -X POST http://localhost:8080/mcp/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "send_notification",
+      "arguments": {
+        "recipients": ["user1@example.com", "user2@example.com"],
+        "message": "Deployment completed successfully",
+        "priority": "high"
+      }
+    },
+    "id": "2"
+  }'
+```
+
+## Implementation Details
+
+### Request Validation
+
+The controller performs the following validations:
+
+1. Request body must not be `null`
+2. `params` field must not be `null`
+3. Tool name must match a registered tool
+4. Arguments must satisfy the tool's `inputSchema` requirements
+
+Validation failures return error code `-32602` (Invalid params).
+
+### Execution Flow
+
+1. **Request mapping**: `McpToolCallRequest` is converted to `ToolExecuteRequest`
+2. **Tool resolution**: `ToolExecutionService` looks up the tool configuration
+3. **API invocation**: HandsAI makes an HTTP request to the configured endpoint
+4. **Response conversion**: `ToolExecuteResponse` is wrapped in `McpToolCallResponse`
+5. **Content formatting**: Results are serialized to text content
+
+### Error Handling
+
+The controller maps exceptions to JSON-RPC error codes:
+
+| Exception Type | Error Code | Example Message |
+|----------------|------------|------------------|
+| `IllegalArgumentException` | `-32602` | "Invalid params: tool not found" |
+| Any other exception | `-32603` | "Internal error: NullPointerException" |
+
+### Source Code Reference
+
+Implemented in:
+```java
+org.dynamcorp.handsaiv2.controller.MCPController.executeApiTool()
+// Location: src/main/java/org/dynamcorp/handsaiv2/controller/MCPController.java:57
+```
+
+## Best Practices
+
+1. **Always validate tool names**: First call `/mcp/tools/list` to get available tools
+2. **Provide request IDs**: Include an `id` field to correlate async requests
+3. **Handle errors gracefully**: Check for the `error` field before accessing `result`
+4. **Type safety**: Ensure argument types match the tool's `inputSchema`
+5. **Required parameters**: Always provide all parameters listed in `inputSchema.required`

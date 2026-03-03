@@ -1,0 +1,655 @@
+---
+title: 'Authentication'
+description: 'Authentication types, flows, and credential security in HandsAI'
+---
+
+## Overview
+
+HandsAI supports multiple authentication methods to connect with virtually any REST API. Authentication is configured at the **Provider** level and automatically applied to all tools under that provider.
+
+All credentials are **encrypted at rest** using Jasypt before being stored in SQLite.
+
+## Supported Authentication Types
+
+HandsAI supports these authentication methods:
+
+<ParamField path="NONE" type="enum">
+  No authentication required (public APIs)
+</ParamField>
+
+<ParamField path="API_KEY" type="enum">
+  Static API key sent in header, query parameter, or request body
+</ParamField>
+
+<ParamField path="BEARER_TOKEN" type="enum">
+  Bearer token authentication (typically sent in Authorization header)
+</ParamField>
+
+<ParamField path="BASIC_AUTH" type="enum">
+  HTTP Basic Authentication (username:password encoded in Base64)
+</ParamField>
+
+### AuthenticationTypeEnum
+
+```java
+public enum AuthenticationTypeEnum {
+    NONE,
+    API_KEY,
+    BEARER_TOKEN,
+    BASIC_AUTH
+}
+```
+
+## API Key Locations
+
+When using `API_KEY` or `BEARER_TOKEN` authentication, you can specify where the credential should be sent:
+
+<ParamField path="HEADER" type="enum">
+  Send in HTTP header (most common)
+  
+  Example: `Authorization: Bearer sk_abc123`
+</ParamField>
+
+<ParamField path="QUERY_PARAMETER" type="enum">
+  Append to URL as query parameter
+  
+  Example: `?api_key=sk_abc123`
+</ParamField>
+
+<ParamField path="IN_BODY" type="enum">
+  Include in request body (for POST/PUT/PATCH requests)
+  
+  Example: `{"api_key": "sk_abc123", "query": "..."}`
+</ParamField>
+
+### ApiKeyLocationEnum
+
+```java
+public enum ApiKeyLocationEnum {
+    NONE,
+    HEADER,
+    QUERY_PARAMETER,
+    IN_BODY
+}
+```
+
+## Authentication Configuration Examples
+
+### Example 1: GitHub (Bearer Token in Header)
+
+```json
+{
+  "name": "GitHub REST API",
+  "baseUrl": "https://api.github.com",
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "apiKeyValue": "ghp_abc123def456",
+  "customHeaders": {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "HandsAI/1.0"
+  }
+}
+```
+
+Requests to GitHub include:
+```
+Authorization: Bearer ghp_abc123def456
+Accept: application/vnd.github+json
+X-GitHub-Api-Version: 2022-11-28
+User-Agent: HandsAI/1.0
+```
+
+### Example 2: Tavily (API Key in Body)
+
+```json
+{
+  "name": "Tavily AI Search",
+  "baseUrl": "https://api.tavily.com",
+  "authenticationType": "API_KEY",
+  "apiKeyLocation": "IN_BODY",
+  "apiKeyName": "api_key",
+  "apiKeyValue": "tvly-abc123",
+  "customHeaders": {
+    "Content-Type": "application/json"
+  }
+}
+```
+
+Requests to Tavily automatically inject the API key in the body:
+```json
+{
+  "api_key": "tvly-abc123",
+  "query": "latest AI news",
+  "search_depth": "basic"
+}
+```
+
+### Example 3: Resend (Bearer Token in Header)
+
+```json
+{
+  "name": "Resend API",
+  "baseUrl": "https://api.resend.com",
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "apiKeyValue": "re_abc123def456",
+  "customHeaders": {
+    "Content-Type": "application/json",
+    "User-Agent": "HandsAI/1.0"
+  }
+}
+```
+
+Requests to Resend include:
+```
+Authorization: Bearer re_abc123def456
+Content-Type: application/json
+```
+
+### Example 4: Custom API (API Key in Query Parameter)
+
+```json
+{
+  "name": "Custom Weather API",
+  "baseUrl": "https://api.weather.example.com",
+  "authenticationType": "API_KEY",
+  "apiKeyLocation": "QUERY_PARAMETER",
+  "apiKeyName": "apikey",
+  "apiKeyValue": "abc123def456"
+}
+```
+
+Requests append the key to the URL:
+```
+GET https://api.weather.example.com/forecast?city=London&apikey=abc123def456
+```
+
+## OAuth2 Token Refresh (Dynamic Authentication)
+
+Some APIs require fetching a short-lived access token before making requests. HandsAI supports **Dynamic Authentication** for this scenario.
+
+### How Dynamic Auth Works
+
+1. **Configure Token Endpoint**: Specify the OAuth2 token URL and credentials
+2. **First Request**: HandsAI fetches the access token
+3. **Token Caching**: Token is cached for 5 minutes (default TTL)
+4. **Automatic Refresh**: When the token expires, HandsAI fetches a new one
+5. **Tool Execution**: The fresh token is used for API calls
+
+### DynamicTokenManager
+
+HandsAI uses `DynamicTokenManager` to handle OAuth2 token lifecycle:
+
+```java
+@Service
+public class DynamicTokenManager {
+
+    private final Map<Long, CachedToken> tokenCache = new ConcurrentHashMap<>();
+    private static final long TOKEN_TTL_SECONDS = 300; // 5 minutes
+
+    public String getToken(ApiProvider provider) {
+        if (!provider.isDynamicAuth()) {
+            return null; // Not using dynamic auth
+        }
+
+        CachedToken cachedToken = tokenCache.get(provider.getId());
+        if (cachedToken != null && cachedToken.expiresAt().isAfter(Instant.now())) {
+            log.debug("Returning cached dynamic token for provider {}", provider.getId());
+            return cachedToken.token();
+        }
+
+        log.info("Fetching new dynamic token for provider {}", provider.getId());
+        String newToken = fetchNewToken(provider);
+
+        tokenCache.put(provider.getId(), 
+            new CachedToken(newToken, Instant.now().plusSeconds(TOKEN_TTL_SECONDS)));
+        return newToken;
+    }
+
+    public void invalidateToken(Long providerId) {
+        log.info("Invalidating dynamic token cache for provider {}", providerId);
+        tokenCache.remove(providerId);
+    }
+
+    private record CachedToken(String token, Instant expiresAt) {}
+}
+```
+
+### Token Fetch Flow
+
+When fetching a new token, `DynamicTokenManager` performs these steps:
+
+```java
+private String fetchNewToken(ApiProvider provider) {
+    try {
+        RestClient client = restClientBuilder.baseUrl(provider.getDynamicAuthUrl()).build();
+        HttpMethod method = provider.getDynamicAuthMethod() == DynamicAuthMethodEnum.GET 
+            ? HttpMethod.GET 
+            : HttpMethod.POST;
+
+        // Parse and decrypt payload
+        Map<String, Object> payloadMap = null;
+        if (provider.getDynamicAuthPayload() != null && !provider.getDynamicAuthPayload().isBlank()) {
+            payloadMap = objectMapper.readValue(provider.getDynamicAuthPayload(),
+                    new TypeReference<Map<String, Object>>() {});
+            
+            // Decrypt encrypted values
+            for (Map.Entry<String, Object> entry : payloadMap.entrySet()) {
+                if (entry.getValue() instanceof String strVal && !strVal.isBlank()) {
+                    entry.setValue(encryptionService.decrypt(strVal));
+                }
+            }
+        }
+
+        String finalUri = provider.getDynamicAuthUrl();
+        DynamicAuthPayloadLocationEnum location = provider.getDynamicAuthPayloadLocation();
+        
+        // Handle payload location (QUERY_PARAMETERS, HEADERS, BODY)
+        RestClient.RequestBodySpec requestSpec = buildAuthRequest(client, method, finalUri, payloadMap, location, provider);
+
+        String responseBody = requestSpec.retrieve().body(String.class);
+
+        // Extract token from response using JSON path
+        return extractTokenFromResponse(responseBody, provider.getDynamicAuthTokenExtractionPath());
+
+    } catch (Exception e) {
+        log.error("Failed to fetch dynamic token for provider {}", provider.getId(), e);
+        throw new ToolExecutionException("Failed to fetch dynamic auth token: " + e.getMessage());
+    }
+}
+```
+
+### Dynamic Auth Configuration Fields
+
+<ParamField path="isDynamicAuth" type="boolean" default="false">
+  Enable dynamic token fetching
+</ParamField>
+
+<ParamField path="dynamicAuthUrl" type="string">
+  OAuth2 token endpoint URL (e.g., `https://bsky.social/xrpc/com.atproto.server.createSession`)
+</ParamField>
+
+<ParamField path="dynamicAuthMethod" type="enum">
+  HTTP method to fetch token: `GET` or `POST`
+</ParamField>
+
+<ParamField path="dynamicAuthPayload" type="string">
+  JSON payload with credentials (encrypted before storage)
+  
+  Example: `{"identifier": "user@example.com", "password": "app_password"}`
+</ParamField>
+
+<ParamField path="dynamicAuthPayloadType" type="enum">
+  Payload format: `JSON` or `FORM_DATA`
+</ParamField>
+
+<ParamField path="dynamicAuthPayloadLocation" type="enum">
+  Where to send payload: `BODY`, `HEADERS`, or `QUERY_PARAMETERS`
+</ParamField>
+
+<ParamField path="dynamicAuthTokenExtractionPath" type="string">
+  JSON path to extract token from response (e.g., `accessJwt` or `data.token`)
+</ParamField>
+
+<ParamField path="dynamicAuthInvalidationKeywords" type="string">
+  Comma-separated keywords that indicate token expiration (e.g., `ExpiredToken,AuthenticationRequired`)
+</ParamField>
+
+### Example: Bluesky OAuth2 Flow
+
+```json
+{
+  "name": "Bluesky API",
+  "baseUrl": "https://bsky.social/xrpc",
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "isDynamicAuth": true,
+  "dynamicAuthUrl": "https://bsky.social/xrpc/com.atproto.server.createSession",
+  "dynamicAuthMethod": "POST",
+  "dynamicAuthPayloadType": "JSON",
+  "dynamicAuthPayloadLocation": "BODY",
+  "dynamicAuthPayload": "{\"identifier\":\"your_handle.bsky.social\",\"password\":\"your_app_password\"}",
+  "dynamicAuthTokenExtractionPath": "accessJwt",
+  "dynamicAuthInvalidationKeywords": "ExpiredToken,AuthenticationRequired"
+}
+```
+
+**Token Fetch Request:**
+```bash
+POST https://bsky.social/xrpc/com.atproto.server.createSession
+Content-Type: application/json
+
+{
+  "identifier": "your_handle.bsky.social",
+  "password": "your_app_password"
+}
+```
+
+**Token Response:**
+```json
+{
+  "did": "did:plc:abc123",
+  "handle": "your_handle.bsky.social",
+  "email": "user@example.com",
+  "accessJwt": "eyJhbGciOiJIUzI1NiIs...",
+  "refreshJwt": "eyJhbGciOiJIUzI1NiIs..."
+}
+```
+
+HandsAI extracts `accessJwt` and uses it for subsequent requests:
+
+```bash
+GET https://bsky.social/xrpc/app.bsky.feed.getTimeline?limit=10
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+```
+
+### Token Cache and Expiration
+
+Tokens are cached in-memory with a 5-minute TTL:
+
+```java
+private record CachedToken(String token, Instant expiresAt) {}
+```
+
+Behavior:
+- **Cache Hit**: If token exists and `expiresAt > now()`, use cached token
+- **Cache Miss**: Fetch new token, cache it for 5 minutes
+- **Manual Invalidation**: Call `invalidateToken(providerId)` to force refresh
+
+This prevents excessive token requests while ensuring fresh credentials.
+
+## Credential Encryption (EncryptionService)
+
+All sensitive credentials are encrypted before storage using **Jasypt** (Java Simplified Encryption).
+
+### EncryptionService Interface
+
+```java
+public interface EncryptionService {
+    String encrypt(String data);
+    String decrypt(String encryptedData);
+}
+```
+
+### Implementation with Jasypt
+
+```java
+@Service
+@RequiredArgsConstructor
+public class EncryptionServiceImpl implements EncryptionService {
+
+    private final StringEncryptor stringEncryptor;
+
+    @Override
+    public String encrypt(String data) {
+        if (data == null) {
+            return null;
+        }
+        return stringEncryptor.encrypt(data);
+    }
+
+    @Override
+    public String decrypt(String encryptedData) {
+        if (encryptedData == null) {
+            return null;
+        }
+        return stringEncryptor.decrypt(encryptedData);
+    }
+}
+```
+
+### What Gets Encrypted
+
+1. **API Keys and Tokens**: `provider.apiKeyValue`
+2. **Dynamic Auth Credentials**: `provider.dynamicAuthPayload`
+3. **OAuth2 Secrets**: Any sensitive values in custom headers or payloads
+
+### Encryption Flow
+
+**On Save (Provider or Tool Creation):**
+
+```java
+// Before saving to database
+String encryptedKey = encryptionService.encrypt("ghp_abc123def456");
+provider.setApiKeyValue(encryptedKey); // Store encrypted value
+apiProviderRepository.save(provider);
+```
+
+**On Use (Tool Execution):**
+
+```java
+// When making API request
+String decryptedKey = encryptionService.decrypt(provider.getApiKeyValue());
+requestSpec.header("Authorization", "Bearer " + decryptedKey);
+```
+
+### Jasypt Configuration
+
+Jasypt is configured via environment variable or `application.properties`:
+
+```properties
+jasypt.encryptor.password=${JASYPT_ENCRYPTOR_PASSWORD:defaultSecretKey}
+jasypt.encryptor.algorithm=PBEWithMD5AndDES
+```
+
+**Production Setup:**
+
+```bash
+export JASYPT_ENCRYPTOR_PASSWORD="your-strong-secret-key"
+java -jar handsai.jar
+```
+
+<Warning>
+  **Security Best Practice**: Use a strong, unique encryption key in production. Store it securely (e.g., in a secrets manager, not in version control).
+</Warning>
+
+### GraalVM Native Image Compatibility
+
+Jasypt uses reflection, which requires explicit hints for GraalVM compilation. HandsAI registers these in `NativeHintsConfig.java`:
+
+```java
+@Override
+public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+    // Register Jasypt classes for reflection
+    hints.reflection().registerType(
+        TypeReference.of("org.jasypt.encryption.pbe.StandardPBEStringEncryptor"),
+        MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS,
+        MemberCategory.INVOKE_PUBLIC_METHODS
+    );
+    // ... other registrations
+}
+```
+
+This ensures HandsAI can be compiled as a native executable while maintaining encryption functionality.
+
+## Authentication in Action
+
+Here's how authentication flows through a complete tool execution:
+
+### Step 1: Tool Discovery
+
+```bash
+GET http://localhost:8080/mcp/tools/list
+```
+
+Response includes tools (authentication not exposed):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "tools": [
+      {
+        "name": "github-create-issue",
+        "description": "Creates a new issue in a GitHub repository.",
+        "inputSchema": { ... }
+      }
+    ]
+  }
+}
+```
+
+### Step 2: Tool Execution Request
+
+```bash
+POST http://localhost:8080/mcp/tools/call
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "github-create-issue",
+    "arguments": {
+      "owner": "facebook",
+      "repo": "react",
+      "title": "Bug in useEffect"
+    }
+  },
+  "id": "req-1"
+}
+```
+
+### Step 3: Authentication Resolution
+
+`ToolExecutionService` retrieves the tool and provider:
+
+```java
+ApiTool tool = toolCacheManager.getCachedTool("github-create-issue")
+    .orElseThrow(() -> new ResourceNotFoundException("Tool not found"));
+
+ApiProvider provider = tool.getProvider();
+```
+
+### Step 4: Token Retrieval
+
+If using dynamic auth:
+
+```java
+String token;
+if (provider.isDynamicAuth()) {
+    token = dynamicTokenManager.getToken(provider); // Fetch or use cached token
+} else {
+    token = encryptionService.decrypt(provider.getApiKeyValue()); // Decrypt static credential
+}
+```
+
+### Step 5: Request Construction
+
+Build the authenticated request:
+
+```java
+RestClient.RequestBodySpec requestSpec = restClient
+    .method(HttpMethod.POST)
+    .uri("https://api.github.com/repos/facebook/react/issues")
+    .header("Authorization", "Bearer " + token)
+    .header("Accept", "application/vnd.github+json")
+    .contentType(MediaType.APPLICATION_JSON)
+    .body(arguments);
+```
+
+### Step 6: API Call and Response
+
+```java
+String response = requestSpec.retrieve().body(String.class);
+```
+
+The response is wrapped in MCP format and returned to the AI agent.
+
+## Security Considerations
+
+<CardGroup cols={2}>
+  <Card title="Encryption at Rest" icon="lock">
+    All credentials encrypted with Jasypt before storage in SQLite
+  </Card>
+  <Card title="SSRF Protection" icon="shield">
+    Validates URLs to prevent internal network access
+  </Card>
+  <Card title="Token Caching" icon="clock">
+    Short-lived cache (5 min) minimizes credential exposure
+  </Card>
+  <Card title="No Credential Logging" icon="eye-slash">
+    Credentials never appear in application logs
+  </Card>
+</CardGroup>
+
+### Best Practices
+
+1. **Use Environment Variables**: Store `JASYPT_ENCRYPTOR_PASSWORD` securely
+2. **Rotate Credentials**: Regularly update API keys and tokens
+3. **Enable Dynamic Auth**: Prefer short-lived tokens over long-lived keys
+4. **Limit Tool Scope**: Only grant minimum required permissions to API tokens
+5. **Monitor Usage**: Check analytics for suspicious tool execution patterns
+
+## Real-World Authentication Examples
+
+Here are complete authentication configurations from HandsAI's use case library:
+
+### Resend API (Static Bearer Token)
+
+```json
+{
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "apiKeyValue": "re_abc123"
+}
+```
+
+### Tavily Search (API Key in Body)
+
+```json
+{
+  "authenticationType": "API_KEY",
+  "apiKeyLocation": "IN_BODY",
+  "apiKeyName": "api_key",
+  "apiKeyValue": "tvly-abc123"
+}
+```
+
+### Bluesky (OAuth2 with Dynamic Auth)
+
+```json
+{
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "isDynamicAuth": true,
+  "dynamicAuthUrl": "https://bsky.social/xrpc/com.atproto.server.createSession",
+  "dynamicAuthMethod": "POST",
+  "dynamicAuthPayloadType": "JSON",
+  "dynamicAuthPayloadLocation": "BODY",
+  "dynamicAuthPayload": "{\"identifier\":\"user.bsky.social\",\"password\":\"app_pwd\"}",
+  "dynamicAuthTokenExtractionPath": "accessJwt"
+}
+```
+
+### Google Jules (API Key in Header)
+
+```json
+{
+  "authenticationType": "API_KEY",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "x-goog-api-key",
+  "apiKeyValue": "AIza..."
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MCP Protocol" icon="network-wired" href="/concepts/mcp-protocol">
+    Learn how authentication integrates with MCP
+  </Card>
+  <Card title="Tool Registry" icon="database" href="/concepts/tool-registry">
+    Understand how tools and providers are stored
+  </Card>
+  <Card title="Import Use Cases" icon="file-import" href="/guides/importing-exporting">
+    Import pre-configured APIs with authentication
+  </Card>
+  <Card title="Security" icon="shield" href="/guides/managing-providers">
+    Advanced security best practices
+  </Card>
+</CardGroup>

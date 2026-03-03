@@ -1,0 +1,507 @@
+---
+title: Managing API Providers
+description: Configure authentication, base URLs, and connection settings for external APIs
+---
+
+API Providers are the foundation of HandsAI's tool registry. Each provider represents an external API service (like GitHub, Resend, or Tavily) and contains authentication configuration, base URL, and a collection of tools.
+
+## What is a Provider?
+
+A **Provider** is a logical grouping of API tools that share:
+
+- **Base URL** - The root endpoint (e.g., `https://api.github.com`)
+- **Authentication** - API keys, bearer tokens, or OAuth credentials
+- **Custom Headers** - Service-specific headers (User-Agent, API version)
+- **Tool Collection** - All endpoints registered for this API
+
+**Source:** `ApiProvider.java:20-79`
+
+### Provider vs Tool
+
+| Provider | Tool |
+|----------|------|
+| GitHub API (`https://api.github.com`) | Create Issue (`/repos/{owner}/{repo}/issues`) |
+| Resend (`https://api.resend.com`) | Send Email (`/emails`) |
+| Tavily (`https://api.tavily.com`) | AI Search (`/search`) |
+
+One provider can have many tools, but each tool belongs to exactly one provider.
+
+## Provider Fields
+
+### Core Configuration
+
+| Field | Type | Description | Example |
+|-------|------|-------------|----------|
+| `name` | String | Human-readable name | "GitHub REST API" |
+| `code` | String | Unique identifier (auto-generated UUID if blank) | "github" |
+| `baseUrl` | String | API root endpoint (required) | "https://api.github.com" |
+| `isExportable` | Boolean | Include in exports | `true` |
+
+**Source:** `ApiProvider.java:22-26` and `CreateApiProviderRequest.java:10-18`
+
+### Authentication Fields
+
+| Field | Type | Values | Description |
+|-------|------|--------|-------------|
+| `authenticationType` | Enum | `API_KEY`, `BEARER_TOKEN`, `BASIC_AUTH` | How to authenticate |
+| `apiKeyLocation` | Enum | `HEADER`, `QUERY_PARAMETER`, `IN_BODY` | Where to send the key |
+| `apiKeyName` | String | e.g., `Authorization`, `x-api-key` | Header/parameter name |
+| `apiKeyValue` | String | Encrypted credential | Actual API key (encrypted at rest) |
+
+**Source:** `ApiProvider.java:27-45`
+
+### Custom Headers
+
+Stored as JSON string, decrypted at runtime:
+
+```json
+{
+  "customHeaders": {
+    "User-Agent": "HandsAI/1.0",
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28"
+  }
+}
+```
+
+**Source:** `ApiProvider.java:36-39` and `ToolExecutionService.java:171-185`
+
+## CRUD Operations
+
+<Tabs>
+  <Tab title="Create Provider">
+    ### POST /admin/providers
+
+    ```bash
+    curl -X POST http://localhost:8080/admin/providers \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Resend API",
+        "code": "resend",
+        "baseUrl": "https://api.resend.com",
+        "authenticationType": "BEARER_TOKEN",
+        "apiKeyLocation": "HEADER",
+        "apiKeyName": "Authorization",
+        "apiKeyValue": "re_abc123_yourkey",
+        "isExportable": true,
+        "customHeaders": {
+          "Content-Type": "application/json",
+          "User-Agent": "HandsAI/1.0"
+        }
+      }'
+    ```
+
+    **Response:**
+    ```json
+    {
+      "id": 1,
+      "name": "Resend API",
+      "code": "resend",
+      "baseUrl": "https://api.resend.com",
+      "authenticationType": "BEARER_TOKEN",
+      "apiKeyLocation": "HEADER",
+      "apiKeyName": "Authorization",
+      "isExportable": true,
+      "createdAt": "2026-03-03T10:00:00Z",
+      "updatedAt": "2026-03-03T10:00:00Z"
+    }
+    ```
+
+    **Note:** `apiKeyValue` is encrypted before storage and never returned in responses.
+
+    **Source:** `ProviderController.java:30-34` and `ApiProviderService.java:44-81`
+  </Tab>
+
+  <Tab title="Read Providers">
+    ### GET /admin/providers
+
+    List all providers:
+
+    ```bash
+    curl http://localhost:8080/admin/providers
+    ```
+
+    **Response:**
+    ```json
+    [
+      {
+        "id": 1,
+        "name": "Resend API",
+        "code": "resend",
+        "baseUrl": "https://api.resend.com",
+        "authenticationType": "BEARER_TOKEN",
+        "isExportable": true
+      },
+      {
+        "id": 2,
+        "name": "GitHub REST API",
+        "code": "github",
+        "baseUrl": "https://api.github.com",
+        "authenticationType": "BEARER_TOKEN",
+        "isExportable": true
+      }
+    ]
+    ```
+
+    **Source:** `ProviderController.java:20-23` and `ApiProviderService.java:29-34`
+
+    ### GET /admin/providers/{id}
+
+    Get specific provider:
+
+    ```bash
+    curl http://localhost:8080/admin/providers/1
+    ```
+
+    **Source:** `ProviderController.java:25-28`
+  </Tab>
+
+  <Tab title="Update Provider">
+    ### PUT /admin/providers/{id}
+
+    Update existing provider (all fields optional):
+
+    ```bash
+    curl -X PUT http://localhost:8080/admin/providers/1 \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Resend Email Service",
+        "apiKeyValue": "re_new_key_xyz789"
+      }'
+    ```
+
+    **Behavior:**
+    - Only provided fields are updated
+    - `apiKeyValue` is re-encrypted if changed
+    - `updatedAt` timestamp is refreshed
+    - Tool cache automatically refreshes
+
+    **Source:** `ProviderController.java:36-41` and `ApiProviderService.java:84-143`
+  </Tab>
+
+  <Tab title="Delete Provider">
+    ### DELETE /admin/providers/{id}
+
+    <Warning>
+      **Cascade Deletion**
+      
+      Deleting a provider removes ALL associated tools and their parameters due to `CascadeType.ALL`.
+      
+      **Source:** `ApiProvider.java:72-74`
+    </Warning>
+
+    ```bash
+    curl -X DELETE http://localhost:8080/admin/providers/1
+    ```
+
+    **Response:** `204 No Content`
+
+    **Source:** `ProviderController.java:43-47` and `ApiProviderService.java:145-152`
+  </Tab>
+</Tabs>
+
+## Authentication Types
+
+<Tabs>
+  <Tab title="BEARER_TOKEN">
+    ### Bearer Token Authentication
+
+    **Common for:** Modern APIs (GitHub, OpenAI, Resend)
+
+    ```json
+    {
+      "authenticationType": "BEARER_TOKEN",
+      "apiKeyLocation": "HEADER",
+      "apiKeyName": "Authorization",
+      "apiKeyValue": "ghp_yourGitHubToken"
+    }
+    ```
+
+    **At runtime, sends:**
+    ```
+    Authorization: Bearer ghp_yourGitHubToken
+    ```
+
+    **Source:** `ToolExecutionService.java:323-325`
+  </Tab>
+
+  <Tab title="API_KEY (Header)">
+    ### API Key in Header
+
+    **Common for:** AWS, SendGrid, Stripe
+
+    ```json
+    {
+      "authenticationType": "API_KEY",
+      "apiKeyLocation": "HEADER",
+      "apiKeyName": "x-api-key",
+      "apiKeyValue": "sk_live_abc123"
+    }
+    ```
+
+    **At runtime, sends:**
+    ```
+    x-api-key: sk_live_abc123
+    ```
+
+    **Source:** `ToolExecutionService.java:310-320`
+  </Tab>
+
+  <Tab title="API_KEY (Query)">
+    ### API Key in Query Parameter
+
+    **Common for:** Google Maps, Weather APIs
+
+    ```json
+    {
+      "authenticationType": "API_KEY",
+      "apiKeyLocation": "QUERY_PARAMETER",
+      "apiKeyName": "key",
+      "apiKeyValue": "AIza_yourGoogleKey"
+    }
+    ```
+
+    **At runtime, builds URL:**
+    ```
+    https://api.service.com/endpoint?key=AIza_yourGoogleKey
+    ```
+
+    **Source:** `ToolExecutionService.java:224-232` and `ToolExecutionService.java:237-288`
+  </Tab>
+
+  <Tab title="API_KEY (Body)">
+    ### API Key in Request Body
+
+    **Common for:** Tavily, some search APIs
+
+    ```json
+    {
+      "authenticationType": "API_KEY",
+      "apiKeyLocation": "IN_BODY",
+      "apiKeyName": "api_key",
+      "apiKeyValue": "tvly-abc123"
+    }
+    ```
+
+    **At runtime, sends JSON:**
+    ```json
+    {
+      "api_key": "tvly-abc123",
+      "query": "search term"
+    }
+    ```
+
+    **Source:** `ToolExecutionService.java:361-370` and `NUEVOS_HITOS.json:62-63`
+  </Tab>
+
+  <Tab title="BASIC_AUTH">
+    ### Basic Authentication
+
+    **Common for:** Legacy APIs, webhooks
+
+    ```json
+    {
+      "authenticationType": "BASIC_AUTH",
+      "apiKeyLocation": "HEADER",
+      "apiKeyName": "Authorization",
+      "apiKeyValue": "dXNlcm5hbWU6cGFzc3dvcmQ="
+    }
+    ```
+
+    **Note:** `apiKeyValue` should be base64-encoded `username:password`
+
+    **At runtime, sends:**
+    ```
+    Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=
+    ```
+
+    **Source:** `ToolExecutionService.java:327-329`
+  </Tab>
+</Tabs>
+
+## Dynamic Authentication (OAuth/Sessions)
+
+For APIs requiring token refresh (OAuth, session-based auth):
+
+```json
+{
+  "name": "Bluesky API",
+  "code": "bluesky",
+  "baseUrl": "https://bsky.social/xrpc",
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "apiKeyValue": "",
+  "isDynamicAuth": true,
+  "dynamicAuthUrl": "https://bsky.social/xrpc/com.atproto.server.createSession",
+  "dynamicAuthMethod": "POST",
+  "dynamicAuthPayloadType": "JSON",
+  "dynamicAuthPayloadLocation": "BODY",
+  "dynamicAuthPayload": "{\"identifier\":\"user@bsky.social\",\"password\":\"app_password\"}",
+  "dynamicAuthTokenExtractionPath": "accessJwt",
+  "dynamicAuthInvalidationKeywords": "ExpiredToken,AuthenticationRequired"
+}
+```
+
+### How It Works
+
+1. **Initial Request:** HandsAI POSTs credentials to `dynamicAuthUrl`
+2. **Token Extraction:** Uses JSONPath to extract token from response
+3. **Token Usage:** Injects token into subsequent API calls
+4. **Auto-Refresh:** Detects invalidation keywords and re-authenticates
+
+**Source:** `NUEVOS_HITOS.json:204-211` and `ToolExecutionService.java:75-106`
+
+<Info>
+  **Token Caching**
+  
+  Dynamic tokens are cached in-memory by provider ID. They're automatically invalidated on 401 responses or when response contains invalidation keywords.
+  
+  **Source:** `DynamicTokenManager.java`
+</Info>
+
+## Real-World Examples
+
+### Example 1: GitHub API
+
+```bash
+curl -X POST http://localhost:8080/admin/providers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "GitHub REST API",
+    "code": "github",
+    "baseUrl": "https://api.github.com",
+    "authenticationType": "BEARER_TOKEN",
+    "apiKeyLocation": "HEADER",
+    "apiKeyName": "Authorization",
+    "apiKeyValue": "ghp_yourPersonalAccessToken",
+    "isExportable": true,
+    "customHeaders": {
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "HandsAI/1.0"
+    }
+  }'
+```
+
+**Source:** `NUEVOS_HITOS.json:110-121`
+
+### Example 2: Tavily AI Search
+
+```bash
+curl -X POST http://localhost:8080/admin/providers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Tavily AI Search",
+    "code": "tavily",
+    "baseUrl": "https://api.tavily.com",
+    "authenticationType": "API_KEY",
+    "apiKeyLocation": "IN_BODY",
+    "apiKeyName": "api_key",
+    "apiKeyValue": "tvly-YourTavilyKey",
+    "isExportable": true,
+    "customHeaders": {
+      "Content-Type": "application/json"
+    }
+  }'
+```
+
+**Source:** `NUEVOS_HITOS.json:57-66`
+
+### Example 3: Google Jules Agent API
+
+```bash
+curl -X POST http://localhost:8080/admin/providers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Jules Agent API",
+    "code": "google-jules-api",
+    "baseUrl": "https://jules.googleapis.com",
+    "authenticationType": "API_KEY",
+    "apiKeyLocation": "HEADER",
+    "apiKeyName": "x-goog-api-key",
+    "apiKeyValue": "AIza_YourJulesKey",
+    "isExportable": true,
+    "isDynamicAuth": false,
+    "customHeaders": {
+      "Content-Type": "application/json"
+    }
+  }'
+```
+
+**Source:** `NUEVOS_HITOS.json:235-245`
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="API Keys are Encrypted at Rest">
+    HandsAI uses AES encryption for all `apiKeyValue` fields before database storage.
+    
+    **Source:** `ApiProviderService.java:63` and `EncryptionService.java`
+  </Accordion>
+
+  <Accordion title="Keys Never Appear in Exports">
+    Export operations replace real keys with `<YOUR_API_KEY>` placeholder.
+    
+    **Source:** `ExportService.java:69`
+  </Accordion>
+
+  <Accordion title="Custom Headers are Encrypted Too">
+    All custom header values are encrypted as well, not just API keys.
+    
+    **Source:** `ApiProviderService.java:154-175`
+  </Accordion>
+
+  <Accordion title="Use Environment Variables">
+    For production deployments, inject secrets via environment:
+    ```bash
+    export GITHUB_TOKEN="ghp_xyz"
+    curl -X POST http://localhost:8080/admin/providers \
+      -d "{\"apiKeyValue\": \"$GITHUB_TOKEN\", ...}"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Issues
+
+<Warning>
+  **Provider not found errors?**
+  
+  Verify the provider `code` matches exactly. Codes are case-sensitive.
+  
+  ```bash
+  curl http://localhost:8080/admin/providers | jq '.[].code'
+  ```
+</Warning>
+
+<Warning>
+  **Authentication failing?**
+  
+  Check:
+  1. `authenticationType` matches API requirements
+  2. `apiKeyLocation` is correct (header vs query vs body)
+  3. `apiKeyName` matches API documentation (e.g., `Authorization` vs `x-api-key`)
+  4. API key has required permissions
+  
+  **Debug with:**
+  ```bash
+  curl http://localhost:8080/admin/tools/api/{tool_id}/validate
+  ```
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Register Tools" icon="wrench" href="/guides/registering-tools">
+    Add API endpoints to your provider
+  </Card>
+  <Card title="Import/Export" icon="download" href="/guides/importing-exporting">
+    Backup and migrate provider configs
+  </Card>
+  <Card title="Parameter Types" icon="sliders" href="/guides/parameter-types">
+    Configure tool input parameters
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/mcp/overview">
+    Complete endpoint documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,198 @@
+---
+title: 'Social Media Integration'
+description: 'Post to LinkedIn, Twitter, Instagram, and more using Ayrshare'
+icon: 'share-nodes'
+---
+
+# Social Media Integration with Ayrshare
+
+Publish to multiple social media platforms simultaneously from your LLM using [Ayrshare](https://www.ayrshare.com/) - a unified API for social media posting.
+
+## Supported Platforms
+
+With Ayrshare, your LLM can post to:
+
+- **LinkedIn** - Professional network updates
+- **Twitter (X)** - Tweets and threads
+- **Instagram** - Posts and stories
+- **Facebook** - Pages and profiles
+- **YouTube** - Community posts
+- **TikTok** - Video content
+- **Pinterest** - Pins and boards
+- **Reddit** - Subreddit posts
+
+## Key Feature: ARRAY Parameters
+
+This integration demonstrates HandsAI's **ARRAY parameter type**, allowing you to specify multiple platforms in a single call:
+
+```json
+{
+  "platforms": ["linkedin", "twitter", "instagram"]
+}
+```
+
+## Setup
+
+### 1. Get Your Ayrshare API Key
+
+1. Sign up at [Ayrshare.com](https://www.ayrshare.com/)
+2. Connect your social media accounts
+3. Copy your API key from the dashboard
+
+### 2. Import the Configuration
+
+```bash
+curl -X POST http://localhost:8080/api/import/providers \
+  -H "Content-Type: application/json" \
+  -d '[{
+    "name": "Ayrshare Social Media",
+    "code": "ayrshare",
+    "baseUrl": "https://app.ayrshare.com/api",
+    "authenticationType": "BEARER_TOKEN",
+    "apiKeyLocation": "HEADER",
+    "apiKeyName": "Authorization",
+    "apiKeyValue": "YOUR_API_KEY_HERE",
+    "customHeaders": {
+      "Content-Type": "application/json"
+    },
+    "tools": [
+      {
+        "name": "Publicar en Redes Sociales",
+        "code": "social-post",
+        "description": "Publica en LinkedIn, Twitter, Instagram y más vía Ayrshare.",
+        "endpointPath": "/post",
+        "httpMethod": "POST",
+        "parameters": [
+          {
+            "name": "post",
+            "type": "STRING",
+            "description": "Texto a publicar",
+            "required": true
+          },
+          {
+            "name": "platforms",
+            "type": "ARRAY",
+            "description": "Plataformas destino. Ej: [\"linkedin\", \"twitter\"]",
+            "required": true
+          }
+        ]
+      }
+    ]
+  }]'
+```
+
+<Warning>
+Replace `YOUR_API_KEY_HERE` with your actual Ayrshare API key.
+</Warning>
+
+## Example: Post to Multiple Platforms
+
+**User request:**
+> "Post this announcement to LinkedIn and Twitter: 'Excited to announce our new AI integration platform!'"
+
+**LLM tool call:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "Publicar en Redes Sociales",
+    "arguments": {
+      "post": "Excited to announce our new AI integration platform!",
+      "platforms": ["linkedin", "twitter"]
+    }
+  },
+  "id": "msg_456"
+}
+```
+
+**HandsAI executes:**
+```
+POST https://app.ayrshare.com/api/post
+Authorization: Bearer YOUR_API_KEY
+Content-Type: application/json
+
+{
+  "post": "Excited to announce our new AI integration platform!",
+  "platforms": ["linkedin", "twitter"]
+}
+```
+
+## Real Response Format
+
+Ayrshare returns the status for each platform:
+
+```json
+{
+  "status": "success",
+  "postIds": [
+    {
+      "platform": "linkedin",
+      "postId": "urn:li:share:7433677427165253632",
+      "postUrl": "https://www.linkedin.com/feed/update/urn:li:share:7433677427165253632"
+    },
+    {
+      "platform": "twitter",
+      "postId": "1893456789012345678",
+      "postUrl": "https://twitter.com/user/status/1893456789012345678"
+    }
+  ]
+}
+```
+
+## Real-World Example
+
+From the HandsAI README:
+
+> **Antigravity** publishing to LinkedIn from the IDE — via HandsAI → Ayrshare, without opening the browser:
+>
+> "I was instructed from an IDE. The human connected HandsAI with Ayrshare via REST API and delegated the service to me. I published to LinkedIn. No copy and paste. No opening the browser. Just an agent, a backend, and a registered tool."
+>
+> — [See the live post on LinkedIn](https://www.linkedin.com/feed/update/urn:li:share:7433677427165253632)
+
+## Advanced: Media Attachments
+
+Ayrshare also supports images, videos, and links. You can extend the tool configuration to include:
+
+```json
+{
+  "name": "mediaUrls",
+  "type": "ARRAY",
+  "description": "URLs de imágenes o videos a adjuntar",
+  "required": false
+}
+```
+
+## Platform-Specific Features
+
+<AccordionGroup>
+  <Accordion title="LinkedIn">
+    - Professional network updates
+    - Company page posting
+    - Rich media support
+  </Accordion>
+  
+  <Accordion title="Twitter (X)">
+    - Standard tweets
+    - Thread support
+    - Media attachments
+  </Accordion>
+  
+  <Accordion title="Instagram">
+    - Image posts
+    - Stories
+    - Reels (requires media URL)
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Email" icon="envelope" href="/use-cases/email">
+    Send emails with Resend
+  </Card>
+  
+  <Card title="GitHub" icon="github" href="/use-cases/github">
+    Create issues and PRs
+  </Card>
+</CardGroup>

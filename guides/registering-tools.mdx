@@ -1,0 +1,338 @@
+---
+title: Registering API Tools
+description: Learn how to register and configure external API tools in HandsAI
+---
+
+HandsAI allows you to register external API endpoints as tools that AI agents can discover and execute through the Model Context Protocol (MCP). This guide covers both manual registration via the Admin API and the frontend workflow.
+
+## Understanding Tool Registration
+
+Every API tool in HandsAI consists of three layers:
+
+1. **Provider** - The API service (base URL, authentication)
+2. **Tool** - A specific endpoint within that API
+3. **Parameters** - Input fields the endpoint requires
+
+### Tool Properties
+
+When registering a tool, you'll configure these core properties:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | String | Human-readable tool name (e.g., "Send Email via Resend") |
+| `code` | String | Unique identifier for MCP discovery (e.g., `resend-send-email`) |
+| `description` | String | What the tool does - shown to AI agents |
+| `endpointPath` | String | API path, supports `{param}` placeholders (e.g., `/repos/{owner}/{repo}/issues`) |
+| `httpMethod` | Enum | `GET`, `POST`, `PUT`, `DELETE`, or `PATCH` |
+| `providerId` | Long | ID of the parent API provider |
+| `enabled` | Boolean | Whether the tool is active (default: `true`) |
+| `isExportable` | Boolean | Can be included in exports (default: `false`) |
+
+**Source Reference:** See `ApiTool.java:23-44` and `CreateApiToolRequest.java:14-24`
+
+## Registration Methods
+
+<Tabs>
+  <Tab title="Admin API (Manual)">
+    ### Step 1: Create the API Provider
+
+    First, register the external API service:
+
+    ```bash
+    curl -X POST http://localhost:8080/admin/providers \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "GitHub REST API",
+        "code": "github",
+        "baseUrl": "https://api.github.com",
+        "authenticationType": "BEARER_TOKEN",
+        "apiKeyLocation": "HEADER",
+        "apiKeyName": "Authorization",
+        "apiKeyValue": "ghp_yourTokenHere",
+        "isExportable": true,
+        "customHeaders": {
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "HandsAI/1.0"
+        }
+      }'
+    ```
+
+    **Response:**
+    ```json
+    {
+      "id": 3,
+      "name": "GitHub REST API",
+      "code": "github",
+      "baseUrl": "https://api.github.com",
+      "authenticationType": "BEARER_TOKEN",
+      "createdAt": "2026-03-03T10:30:00Z"
+    }
+    ```
+
+    Save the returned `id` (e.g., `3`) - you'll need it for the next step.
+
+    **Source:** `ProviderController.java:30-34`
+
+    ### Step 2: Register the Tool
+
+    Now create a tool endpoint for that provider:
+
+    ```bash
+    curl -X POST http://localhost:8080/admin/tools/api \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Create GitHub Issue",
+        "code": "github-create-issue",
+        "description": "Creates a new issue in a GitHub repository",
+        "providerId": 3,
+        "endpointPath": "/repos/{owner}/{repo}/issues",
+        "httpMethod": "POST",
+        "enabled": true,
+        "isExportable": true,
+        "parameters": [
+          {
+            "name": "owner",
+            "type": "STRING",
+            "description": "Repository owner (user or organization)",
+            "required": true,
+            "defaultValue": ""
+          },
+          {
+            "name": "repo",
+            "type": "STRING",
+            "description": "Repository name",
+            "required": true,
+            "defaultValue": ""
+          },
+          {
+            "name": "title",
+            "type": "STRING",
+            "description": "Issue title",
+            "required": true,
+            "defaultValue": ""
+          },
+          {
+            "name": "body",
+            "type": "STRING",
+            "description": "Issue description (supports Markdown)",
+            "required": false,
+            "defaultValue": ""
+          }
+        ]
+      }'
+    ```
+
+    **Source:** `AdminToolController.java:30-35`
+
+    ### Step 3: Verify Registration
+
+    Check that your tool was registered correctly:
+
+    ```bash
+    curl http://localhost:8080/admin/tools/api
+    ```
+
+    The tool will now be discoverable by MCP clients via the `handsai-go-bridge`.
+
+  </Tab>
+
+  <Tab title="Batch Registration">
+    ### Register Multiple Tools at Once
+
+    For registering several tools under the same provider:
+
+    ```bash
+    curl -X POST http://localhost:8080/admin/tools/api/batch \
+      -H "Content-Type: application/json" \
+      -d '[
+        {
+          "name": "Create Issue",
+          "code": "github-create-issue",
+          "description": "Creates a GitHub issue",
+          "providerId": 3,
+          "endpointPath": "/repos/{owner}/{repo}/issues",
+          "httpMethod": "POST",
+          "enabled": true,
+          "parameters": [/*...*/]
+        },
+        {
+          "name": "List Pull Requests",
+          "code": "github-list-pulls",
+          "description": "Lists PRs for a repository",
+          "providerId": 3,
+          "endpointPath": "/repos/{owner}/{repo}/pulls",
+          "httpMethod": "GET",
+          "enabled": true,
+          "parameters": [/*...*/]
+        }
+      ]'
+    ```
+
+    **Response:**
+    ```json
+    {
+      "status": 200,
+      "message": "2 tools creadas correctamente"
+    }
+    ```
+
+    **Source:** `AdminToolController.java:37-42`
+  </Tab>
+</Tabs>
+
+## Parameter Types
+
+HandsAI supports five parameter types:
+
+- **STRING** - Text values (email addresses, titles, descriptions)
+- **NUMBER** - Integers or decimals (limits, page numbers)
+- **BOOLEAN** - True/false flags (`true`, `false`)
+- **ARRAY** - JSON arrays (e.g., `["linkedin", "twitter"]`)
+- **OBJECT** - Complex JSON objects (currently experimental)
+
+**Source:** `ParameterType.java:3-9`
+
+### Parameter Schema
+
+```json
+{
+  "name": "from",
+  "type": "STRING",
+  "description": "Sender email address (must be verified domain)",
+  "required": true,
+  "defaultValue": ""
+}
+```
+
+**Source:** `ToolParameter.java:18-26`
+
+## Path Parameters
+
+Use curly braces `{paramName}` in `endpointPath` for dynamic URL segments:
+
+```json
+{
+  "endpointPath": "/repos/{owner}/{repo}/issues",
+  "parameters": [
+    {"name": "owner", "type": "STRING", "required": true},
+    {"name": "repo", "type": "STRING", "required": true}
+  ]
+}
+```
+
+HandsAI automatically substitutes these values at execution time.
+
+**Source:** `ToolExecutionService.java:237-252`
+
+## Testing Your Tool
+
+### Manual Health Check
+
+```bash
+curl -X POST http://localhost:8080/admin/tools/api/{tool_id}/validate
+```
+
+This performs a real API call to verify the tool works.
+
+**Source:** `AdminToolController.java:67-70`
+
+### Execute via MCP
+
+Once registered, tools appear in the MCP tools list:
+
+```bash
+# Via handsai-go-bridge
+curl -X POST http://localhost:8080/api/mcp/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method": "tools/call",
+    "params": {
+      "name": "github-create-issue",
+      "arguments": {
+        "owner": "facebook",
+        "repo": "react",
+        "title": "Test issue from HandsAI",
+        "body": "This is a test"
+      }
+    }
+  }'
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Descriptive Code Names">
+    Choose `code` values that indicate both provider and action:
+    - ✅ `resend-send-email`
+    - ✅ `github-create-issue`
+    - ❌ `send` (too vague)
+    - ❌ `tool1` (not descriptive)
+  </Accordion>
+
+  <Accordion title="Write Clear Descriptions">
+    Descriptions are shown to AI agents. Be specific:
+    - ✅ "Creates a new issue in a GitHub repository"
+    - ❌ "GitHub tool" (too vague)
+  </Accordion>
+
+  <Accordion title="Mark Optional Parameters">
+    Set `required: false` for optional fields and provide sensible defaults:
+    ```json
+    {
+      "name": "state",
+      "type": "STRING",
+      "required": false,
+      "defaultValue": "open"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Enable Export for Reusable Tools">
+    Set `isExportable: true` for tools you want to share or back up:
+    ```json
+    {
+      "isExportable": true
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Issues
+
+<Warning>
+  **Tool not appearing in MCP?**
+  
+  The tool cache updates every 5 minutes. Force refresh:
+  ```bash
+  curl -X POST http://localhost:8080/api/mcp/tools/call \
+    -d '{"method": "tools/call", "params": {"name": "handsai_refresh_tool_cache", "arguments": {}}}'
+  ```
+
+  **Source:** `ToolExecutionService.java:515-518`
+</Warning>
+
+<Warning>
+  **Path parameters not substituting?**
+  
+  Ensure parameter names match exactly:
+  - Path: `/repos/{owner}/{repo}` 
+  - Parameters must include `owner` and `repo`
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Import/Export Tools" icon="download" href="/guides/importing-exporting">
+    Learn batch operations for tool management
+  </Card>
+  <Card title="Parameter Types" icon="sliders" href="/guides/parameter-types">
+    Deep dive into parameter handling
+  </Card>
+  <Card title="Provider Management" icon="server" href="/guides/managing-providers">
+    Configure authentication and base URLs
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/mcp/overview">
+    Complete endpoint documentation
+  </Card>
+</CardGroup>

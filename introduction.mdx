@@ -1,0 +1,179 @@
+---
+title: Introduction
+description: HandsAI is an MCP bridge service that dynamically exposes REST APIs as tools for LLMs without writing code
+---
+
+# HandsAI - AI as the brain, HandsAI as its hands
+
+HandsAI is the bridge between LLMs and the real world. The concept is simple:
+
+<Card title="The Core Idea" icon="lightbulb">
+  **Register any REST API → HandsAI exposes it as an MCP tool → Your LLM can use it.**
+
+  No code. No plugins. No complex configuration. Just register the endpoint, its parameters, and HandsAI does the rest: the LLM discovers available tools, calls them when needed, and receives results — all through the standard MCP protocol.
+</Card>
+
+## Architecture Overview
+
+HandsAI provides a complete bridge architecture connecting LLMs to external APIs:
+
+```
+[Your LLM / Claude / Any MCP Client]
+         ↓  MCP (JSON-RPC / stdio)
+  [HandsAI Bridge (Go)]
+         ↓  HTTP REST
+     [HandsAI v3 (Spring Boot)]
+         ↓  HTTP REST
+ [Any External API You Register]
+```
+
+<Note>
+  The HandsAI Bridge is a separate Go binary that translates MCP's stdio protocol to HTTP REST calls. See the [HandsAI Bridge repository](https://github.com/Vrivaans/handsai-bridge) for installation.
+</Note>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Dynamic Tool Discovery" icon="magnifying-glass">
+    LLMs discover available tools at runtime through the MCP protocol. Tools are cached in memory for high performance.
+  </Card>
+  
+  <Card title="Zero-Code Registration" icon="code">
+    Register APIs from the UI or import via JSON. No code changes needed — tools are available immediately.
+  </Card>
+  
+  <Card title="Flexible Authentication" icon="key">
+    Supports OAuth2, API Keys (header/query/body), Bearer tokens, and dynamic token refresh with automatic retry on expiration.
+  </Card>
+  
+  <Card title="GraalVM Native" icon="bolt">
+    Compiles to native executable with < 1.5s startup time and low memory footprint using GraalVM AOT compilation.
+  </Card>
+  
+  <Card title="Virtual Threads" icon="layer-group">
+    Leverages Java 21 Virtual Threads for high concurrency and scalability without the overhead of traditional threads.
+  </Card>
+  
+  <Card title="SQLite Powered" icon="database">
+    Zero-configuration embedded database with WAL mode for high-concurrency operations and batch processing.
+  </Card>
+  
+  <Card title="Smart Caching" icon="gauge-high">
+    Tool definitions cached in-memory (ToolCacheManager) for instant discovery and reduced database hits.
+  </Card>
+  
+  <Card title="Rich Parameter Types" icon="list">
+    Full support for STRING, NUMBER, BOOLEAN, and ARRAY types with automatic JSON deserialization.
+  </Card>
+</CardGroup>
+
+## How It Works in Practice
+
+<Steps>
+  <Step title="Start HandsAI">
+    Launch the service with `./mvnw spring-boot:run` — runs on `http://localhost:8080`
+  </Step>
+  
+  <Step title="Register an API">
+    Import tools via the UI or JSON. Tools are immediately available — no restarts needed.
+  </Step>
+  
+  <Step title="MCP Client Discovers">
+    Your MCP client (Claude Desktop, Antigravity, VS Code) sees the tool automatically.
+  </Step>
+  
+  <Step title="Execute in Real-Time">
+    The LLM calls the tool, HandsAI executes the API request, and returns results instantly.
+  </Step>
+</Steps>
+
+## Real-World Use Cases
+
+<AccordionGroup>
+  <Accordion title="🌤️ Weather API Integration">
+    Register WeatherAPI to let your LLM fetch current weather for any city.
+    
+    **Example:** "What's the weather in Buenos Aires?" → LLM calls `api-clima` tool → Returns real-time weather data.
+    
+    See the [Weather API Use Case](https://github.com/Vrivaans/handsaiv3/blob/main/docs/casos-de-uso/CLIMA.md) for complete setup.
+  </Accordion>
+  
+  <Accordion title="📱 Social Media Posting (Ayrshare)">
+    Post to LinkedIn, Twitter, Instagram, and more from your LLM using Ayrshare's API.
+    
+    **Example:** Agent posts to LinkedIn directly from the IDE without opening a browser. Supports `ARRAY` parameters for multi-platform posting.
+    
+    [Live example on LinkedIn](https://www.linkedin.com/feed/update/urn:li:share:7433677427165253632)
+  </Accordion>
+  
+  <Accordion title="📧 Transactional Email (Resend)">
+    Send emails through Resend API with HTML content, custom headers, and verified domains.
+    
+    Registered as a `BEARER_TOKEN` provider with parameters for `from`, `to`, `subject`, and `html` body.
+  </Accordion>
+  
+  <Accordion title="🔍 AI-Powered Search (Tavily)">
+    Integrate Tavily's AI search for precise answers and sources.
+    
+    Uses `IN_BODY` API key authentication with configurable search depth and image inclusion.
+  </Accordion>
+  
+  <Accordion title="🐙 GitHub REST API">
+    Create issues, list pull requests, and manage repositories directly from your LLM.
+    
+    Demonstrates path parameters (`/repos/{owner}/{repo}/issues`) and dynamic URL building.
+  </Accordion>
+  
+  <Accordion title="🤖 Jules Agent API (Google)">
+    Delegate coding tasks to Google's Jules agent. Create sessions, monitor progress, approve plans — Jules opens PRs automatically.
+    
+    Uses advanced features like `bodyPayloadTemplate` for structured JSON payloads with parameter interpolation.
+  </Accordion>
+</AccordionGroup>
+
+## Quick Links
+
+<CardGroup cols={3}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get HandsAI running in minutes
+  </Card>
+  
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Deep dive into system design
+  </Card>
+  
+  <Card title="API Reference" icon="book" href="/api/mcp/overview">
+    Complete endpoint documentation
+  </Card>
+</CardGroup>
+
+## Technology Stack
+
+<CardGroup cols={2}>
+  <Card title="Spring Boot 3.5.4" icon="leaf">
+    Modern Java web framework with Spring MVC for REST APIs
+  </Card>
+  
+  <Card title="Java 21 LTS" icon="mug-hot">
+    Latest LTS with Virtual Threads, Records, Pattern Matching
+  </Card>
+  
+  <Card title="GraalVM Native Image" icon="rocket">
+    AOT compilation for sub-second startup times
+  </Card>
+  
+  <Card title="SQLite + JPA" icon="database">
+    Embedded database with Hibernate and custom dialect
+  </Card>
+</CardGroup>
+
+## Open Source
+
+HandsAI is open source under the AGPL-3.0 license.
+
+- **Main Repository**: [github.com/Vrivaans/handsaiv3](https://github.com/Vrivaans/handsaiv3)
+- **Bridge (Go)**: [github.com/Vrivaans/handsai-bridge](https://github.com/Vrivaans/handsai-bridge)
+
+<Tip>
+  Ready to get started? Head to the [Quickstart Guide](/quickstart) to register your first API tool in under 5 minutes.
+</Tip>

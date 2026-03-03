@@ -1,0 +1,80 @@
+---
+title: 'Use Cases Overview'
+description: 'Ready-to-import integrations for HandsAI - Weather, Social Media, Email, Search, GitHub, and Jules Agent API'
+icon: 'grid-2'
+---
+
+# Use Cases Overview
+
+HandsAI provides ready-to-import use cases that allow your LLM to interact with external APIs instantly. Each use case includes a complete JSON configuration that you can import directly into HandsAI - no coding required.
+
+## Available Integrations
+
+<CardGroup cols={2}>
+  <Card title="Weather API" icon="cloud-sun" href="/use-cases/weather-api">
+    Get current weather data for any city using WeatherAPI.com
+  </Card>
+  
+  <Card title="Social Media" icon="share-nodes" href="/use-cases/social-media">
+    Post to LinkedIn, Twitter, Instagram and more via Ayrshare
+  </Card>
+  
+  <Card title="Email" icon="envelope" href="/use-cases/email">
+    Send transactional emails using Resend API
+  </Card>
+  
+  <Card title="Search" icon="magnifying-glass" href="/use-cases/search">
+    AI-powered search with Tavily for precise answers and sources
+  </Card>
+  
+  <Card title="GitHub" icon="github" href="/use-cases/github">
+    Create issues and list pull requests via GitHub REST API
+  </Card>
+  
+  <Card title="Jules Agent" icon="robot" href="/use-cases/jules-agent">
+    Delegate coding tasks to Google's Jules AI agent
+  </Card>
+</CardGroup>
+
+## How to Import Use Cases
+
+All use case configurations are available in the [`NUEVOS_HITOS.json`](https://github.com/Vrivaans/HandsAI/blob/main/docs/casos-de-uso/NUEVOS_HITOS.json) file. You can import them in two ways:
+
+### Option 1: Via UI
+
+1. Navigate to the HandsAI web interface at `http://localhost:8080`
+2. Go to the import section
+3. Upload the JSON file or paste its contents
+
+### Option 2: Via API
+
+```bash
+curl -X POST http://localhost:8080/api/import/providers \
+  -H "Content-Type: application/json" \
+  -d @NUEVOS_HITOS.json
+```
+
+<Note>
+Remember to replace `<YOUR_API_KEY>` placeholders with your actual API keys after importing.
+</Note>
+
+## What You Get
+
+Each use case includes:
+
+- **Provider Configuration**: Base URL, authentication method, headers
+- **Tool Definitions**: Endpoint paths, HTTP methods, parameters
+- **Parameter Schemas**: Type definitions (STRING, NUMBER, BOOLEAN, ARRAY)
+- **Documentation**: Setup guides and real-world examples
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get HandsAI running in minutes
+  </Card>
+  
+  <Card title="Import/Export API" icon="arrow-right-arrow-left" href="/api/import-export/overview">
+    Learn about the import/export endpoints
+  </Card>
+</CardGroup>

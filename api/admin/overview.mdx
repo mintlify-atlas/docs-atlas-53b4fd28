@@ -1,0 +1,70 @@
+---
+title: 'Admin API Overview'
+description: 'Programmatic access to manage tools and providers in HandsAI'
+---
+
+## Purpose
+
+The Admin API provides programmatic access to manage tools and providers in HandsAI. These endpoints allow you to:
+
+- **Manage Tools**: Create, update, retrieve, and delete API tool definitions
+- **Manage Providers**: Configure external API providers with authentication settings
+- **Validate Health**: Check tool endpoint availability
+
+The Admin API is designed for **transactional, one-by-one operations** through the UI or external integrations.
+
+<Info>
+For bulk operations, use the [Import/Export API](/api/import-export/overview) which handles batch processing of tools and providers.
+</Info>
+
+## Base Paths
+
+- **Tools**: `/admin/tools/api`
+- **Providers**: `/admin/providers`
+
+## Authentication
+
+All Admin API endpoints require authentication. Include your credentials in the request headers:
+
+```bash
+curl -X GET "http://localhost:8080/admin/tools/api" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+<Note>
+Authentication implementation details depend on your HandsAI deployment configuration.
+</Note>
+
+## CRUD Operations Overview
+
+### Tools Management
+
+| Operation | Method | Endpoint |
+|-----------|--------|----------|
+| List all tools | GET | `/admin/tools/api` |
+| Get tool by ID | GET | `/admin/tools/api/{id}` |
+| Create tool | POST | `/admin/tools/api` |
+| Update tool | PUT | `/admin/tools/api/{id}` |
+| Delete tool | DELETE | `/admin/tools/api/{id}` |
+| Validate health | POST | `/admin/tools/api/{id}/validate` |
+
+### Providers Management
+
+| Operation | Method | Endpoint |
+|-----------|--------|----------|
+| List all providers | GET | `/admin/providers` |
+| Get provider by ID | GET | `/admin/providers/{id}` |
+| Create provider | POST | `/admin/providers` |
+| Update provider | PUT | `/admin/providers/{id}` |
+| Delete provider | DELETE | `/admin/providers/{id}` |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tool Management" icon="wrench" href="/api/admin/tools">
+    Manage API tool definitions and configurations
+  </Card>
+  <Card title="Provider Management" icon="server" href="/api/admin/providers">
+    Configure external API providers and authentication
+  </Card>
+</CardGroup>

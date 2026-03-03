@@ -1,0 +1,115 @@
+---
+title: 'Import/Export Overview'
+description: 'Batch operations for sharing and migrating tool configurations'
+---
+
+## Purpose
+
+The Import/Export API enables batch operations for backing up, sharing, and migrating tool configurations across HandsAI instances. These endpoints allow you to:
+
+- **Export** provider configurations with their associated tools and parameters
+- **Import** configurations to replicate setups or share with team members
+- **Backup** your entire tool catalog for disaster recovery
+- **Migrate** configurations between development, staging, and production environments
+
+## Base Paths
+
+- Export endpoint: `/api/export`
+- Import endpoint: `/api/import`
+
+## Use Cases
+
+### Configuration Backup
+
+Export all your configured providers to create a backup of your tool catalog:
+
+```bash
+curl http://localhost:8080/api/export/providers
+```
+
+### Sharing Configurations
+
+Share specific provider configurations with team members or across projects:
+
+```bash
+curl "http://localhost:8080/api/export/providers?ids=1,2,3"
+```
+
+### Environment Migration
+
+Export from one environment and import to another to maintain consistency:
+
+```bash
+# Export from production
+curl http://prod-server:8080/api/export/providers > tools.json
+
+# Import to development
+curl -X POST http://dev-server:8080/api/import/providers \
+  -H "Content-Type: application/json" \
+  -d @tools.json
+```
+
+## Data Structure
+
+The import/export format follows a hierarchical structure:
+
+```
+Provider
+├── Provider metadata (name, code, baseUrl, authentication)
+├── Custom headers
+└── Tools[]
+    ├── Tool metadata (name, code, description, endpoint)
+    └── Parameters[]
+        └── Parameter metadata (name, type, required, description)
+```
+
+### Hierarchical Format
+
+The JSON structure represents the complete provider configuration:
+
+- **Provider level**: Authentication settings, base URL, custom headers
+- **Tool level**: Endpoint paths, HTTP methods, descriptions
+- **Parameter level**: Type definitions, validation rules, default values
+
+## API Key Security
+
+### Export Behavior
+
+For security reasons, API keys are **automatically masked** during export:
+
+- Real API keys are replaced with `<YOUR_API_KEY>`
+- Empty or null values remain unchanged
+- Other sensitive fields are preserved as-is for functionality
+
+### Import Behavior
+
+The import process handles API key placeholders intelligently:
+
+- Values set to `<YOUR_API_KEY>` are **skipped** (not updated)
+- Empty or blank values are **skipped**
+- Only valid API key values are encrypted and stored
+- Existing keys are preserved if the import payload contains placeholders
+
+<Warning>
+Always review exported configurations before sharing publicly. While API keys are masked, other configuration details like endpoint paths and custom headers are included.
+</Warning>
+
+## Upsert Behavior
+
+The import endpoint uses **upsert logic** based on the `code` field:
+
+- If a provider with the given `code` exists, it will be **updated**
+- If no provider exists with that `code`, a new one will be **created**
+- Tools follow the same pattern using their `code` field
+- Parameters are recreated with new UUIDs to avoid conflicts
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Export API" icon="download" href="/api/import-export/export">
+    Learn how to export provider configurations
+  </Card>
+  <Card title="Import API" icon="upload" href="/api/import-export/import">
+    Learn how to import provider configurations
+  </Card>
+</CardGroup>

@@ -1,0 +1,307 @@
+---
+title: Contributing Guide
+description: Guidelines for contributing to HandsAI development
+---
+
+## Welcome Contributors
+
+HandsAI is a bridging API that acts as a universal dynamic registry connecting Model Context Protocol (MCP) clients with external REST APIs. This guide outlines the architecture, conventions, and requirements for contributing code.
+
+## Code Style
+
+### Lombok Annotations
+
+HandsAI extensively uses [Lombok](https://projectlombok.org/) to reduce boilerplate code. Follow these patterns:
+
+```java
+@Entity
+@Table(name = "api_providers")
+@Getter
+@Setter
+@SuperBuilder
+@NoArgsConstructor
+@AllArgsConstructor
+public class ApiProvider extends BaseModel {
+    private String name;
+    private String baseUrl;
+    // ...
+}
+```
+
+Key annotations:
+- `@Getter` / `@Setter` - Auto-generate getters and setters
+- `@SuperBuilder` - Enable builder pattern with inheritance
+- `@NoArgsConstructor` / `@AllArgsConstructor` - Generate constructors
+- `@Slf4j` - Inject SLF4J logger instance
+
+### Logging with SLF4J
+
+Always use `@Slf4j` for logging. HandsAI is deeply instrumented to provide visibility into what AI agents are doing:
+
+```java
+@Service
+@Slf4j
+public class ToolExecutionService {
+    public void executeRemoteTool(String toolName, Map<String, Object> arguments) {
+        log.info("Executing tool: {} with arguments: {}", toolName, arguments);
+        try {
+            // execution logic
+            log.debug("Tool execution completed successfully");
+        } catch (Exception e) {
+            log.error("Tool execution failed: {}", e.getMessage(), e);
+        }
+    }
+}
+```
+
+Log important execution paths, especially in:
+- `ToolExecutionService` - Tool invocations
+- MCP handlers - Protocol communication
+- Authentication flows - Security events
+
+## Architecture Principles
+
+### DTO Separation from Entities
+
+<Warning>
+Never return JPA Entities directly from Controllers. Always use DTOs (Data Transfer Objects).
+</Warning>
+
+Entities are persistence models; DTOs are API contracts. This separation:
+- Prevents lazy-loading issues
+- Avoids exposing internal database structure
+- Enables data transformation and security filtering
+
+**Example - Entity:**
+```java
+@Entity
+@Table(name = "api_providers")
+public class ApiProvider extends BaseModel {
+    private String apiKeyValue; // Encrypted, should not be exposed
+    @OneToMany(mappedBy = "provider")
+    private List<ApiTool> tools;
+}
+```
+
+**Example - DTO (using Java Records):**
+```java
+public record ApiProviderResponse(
+    Long id,
+    String name,
+    String baseUrl,
+    AuthenticationTypeEnum authenticationType,
+    Map<String, String> customHeaders
+) {
+    public static ApiProviderResponse from(ApiProvider provider) {
+        // Map entity to DTO, obscure sensitive data
+        return new ApiProviderResponse(
+            provider.getId(),
+            provider.getName(),
+            provider.getBaseUrl(),
+            provider.getAuthenticationType(),
+            parseHeaders(provider.getCustomHeadersJson())
+        );
+    }
+}
+```
+
+### Project Structure
+
+When adding new features, follow this organization:
+
+```
+src/main/java/org/dynamcorp/handsaiv2/
+├── controller/          # REST endpoints
+│   ├── ProviderController.java
+│   ├── MCPController.java
+│   └── AdminToolController.java
+├── service/            # Business logic
+│   ├── ApiProviderService.java
+│   ├── ToolExecutionService.java
+│   └── EncryptionService.java
+├── repository/         # Data access layer
+│   ├── ApiProviderRepository.java
+│   └── ApiToolRepository.java
+├── model/             # JPA entities
+│   ├── ApiProvider.java
+│   ├── ApiTool.java
+│   └── ToolParameter.java
+├── dto/               # Data transfer objects
+│   ├── ApiProviderResponse.java
+│   └── CreateApiToolRequest.java
+└── config/            # Configuration classes
+    ├── NativeHintsConfig.java
+    └── SecurityConfig.java
+```
+
+**Where to add new features:**
+- **Controllers** - New REST endpoints or MCP protocol handlers
+- **Services** - Business logic, external API calls, orchestration
+- **Repositories** - Database queries (extend `JpaRepository`)
+- **Models** - New database entities (extend `BaseModel`)
+- **DTOs** - API request/response structures
+
+## Testing Requirements
+
+### Unit Tests
+
+Test service logic in isolation:
+
+```java
+@SpringBootTest
+class ApiProviderServiceTest {
+    @Autowired
+    private ApiProviderService providerService;
+    
+    @Test
+    void shouldCreateProviderWithValidData() {
+        // Arrange
+        CreateApiProviderRequest request = new CreateApiProviderRequest(
+            "test-provider", "https://api.example.com"
+        );
+        
+        // Act
+        ApiProviderResponse response = providerService.createProvider(request);
+        
+        // Assert
+        assertNotNull(response.id());
+        assertEquals("test-provider", response.name());
+    }
+}
+```
+
+### Integration Tests
+
+Test full request/response cycles with `@WebMvcTest` or `@SpringBootTest`.
+
+## GraalVM Compatibility Requirements
+
+<Warning>
+HandsAI must remain compatible with GraalVM Native Image compilation. This is **CRITICAL** for maintaining sub-1.5 second startup times.
+</Warning>
+
+### Reflection Registration
+
+GraalVM's "closed-world assumption" removes classes not explicitly referenced. If your code uses:
+- Reflection
+- Dynamic proxies
+- Class.forName()
+- Jackson deserialization of complex types
+
+You **MUST** register these types in `NativeHintsConfig.java`:
+
+```java
+@Configuration
+@ImportRuntimeHints(NativeHintsConfig.HandsAiRuntimeHints.class)
+public class NativeHintsConfig {
+    public static class HandsAiRuntimeHints implements RuntimeHintsRegistrar {
+        @Override
+        public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+            // Register for reflection
+            hints.reflection().registerTypeIfPresent(classLoader,
+                "com.example.YourDynamicClass",
+                MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+                MemberCategory.INVOKE_DECLARED_METHODS);
+        }
+    }
+}
+```
+
+### Resource Registration
+
+Dynamically loaded resources (JSON templates, configuration files) must be registered:
+
+```java
+hints.resources().registerPattern("templates/*.json");
+```
+
+### Testing Native Compilation
+
+After architectural changes, verify native compilation:
+
+```bash
+./mvnw -Pnative native:compile
+```
+
+This process takes several minutes but ensures GraalVM compatibility.
+
+## Pull Request Process
+
+1. **Fork and Branch** - Create a feature branch from `main`
+2. **Write Tests** - Include unit tests for new functionality
+3. **Follow Code Style** - Use Lombok annotations, separate DTOs from entities
+4. **Document Changes** - Update relevant documentation
+5. **Test Native Build** - Run `./mvnw -Pnative native:compile` for major changes
+6. **Submit PR** - Describe the problem solved and approach taken
+
+### PR Checklist
+
+- [ ] Code follows Lombok annotation patterns
+- [ ] DTOs are used instead of returning entities
+- [ ] Logging added for important execution paths
+- [ ] Unit tests added/updated
+- [ ] GraalVM compatibility verified (if applicable)
+- [ ] No sensitive data logged or exposed in responses
+- [ ] SQLite error handling considered (especially `SQLITE_BUSY`)
+
+## Database Conventions
+
+HandsAI uses SQLite with specific conventions:
+
+- **Schema Evolution** - Hibernate `update` mode (see `application.properties`)
+- **WAL Mode** - Write-Ahead Logging enabled for concurrency
+- **Error Handling** - Handle `SQLITE_BUSY` errors gracefully
+- **Transactions** - Use `@Transactional` for multi-step operations
+
+Example error handling:
+
+```java
+try {
+    repository.save(entity);
+} catch (DataIntegrityViolationException e) {
+    log.error("Database constraint violation: {}", e.getMessage());
+    throw new ApiException("Entity already exists", e);
+}
+```
+
+## MCP Protocol Compliance
+
+If modifying MCP-related code:
+
+- HandsAI serves **JSON-RPC 2.0** over HTTP
+- Use standard MCP error codes (see `McpError.java`)
+- Tools are resolved dynamically from the database
+- Responses cached in `ToolCacheManager`
+
+Example MCP response structure:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "tools": [
+      {
+        "name": "weather_get",
+        "description": "Get current weather",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "city": {"type": "string", "description": "City name"}
+          },
+          "required": ["city"]
+        }
+      }
+    ]
+  }
+}
+```
+
+## Additional Resources
+
+- [GraalVM Native Image Documentation](https://www.graalvm.org/latest/reference-manual/native-image/)
+- [Spring Boot Native Support](https://docs.spring.io/spring-boot/reference/packaging/native-image/index.html)
+- [Model Context Protocol Specification](https://modelcontextprotocol.io/)
+- [Lombok Documentation](https://projectlombok.org/)
+
+Keep the code clean, startup time low, and never break native image execution!

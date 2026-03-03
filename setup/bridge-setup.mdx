@@ -1,0 +1,311 @@
+---
+title: 'HandsAI Bridge Setup'
+description: 'Connect HandsAI to Claude Desktop, VS Code, and other MCP clients'
+icon: 'bridge'
+---
+
+The **HandsAI Bridge** is a lightweight Go binary that translates the Model Context Protocol (MCP) stdio communication to HTTP REST calls. This allows MCP clients like Claude Desktop, Antigravity, and VS Code to seamlessly discover and execute tools registered in HandsAI.
+
+## What the Bridge Does
+
+The bridge acts as a protocol adapter:
+
+```
+[MCP Client (Claude Desktop, VS Code, etc.)]
+         ↓  MCP over stdio (JSON-RPC)
+      [HandsAI Bridge (Go)]
+         ↓  HTTP REST
+   [HandsAI Server (Spring Boot)]
+         ↓  HTTP REST
+  [External APIs you registered]
+```
+
+- **Input**: JSON-RPC messages over stdio from MCP clients
+- **Output**: HTTP REST calls to HandsAI server at `http://localhost:8080`
+- **Benefits**: Zero configuration for clients, single integration point
+
+## Prerequisites
+
+<Steps>
+  <Step title="HandsAI Server Running">
+    Ensure HandsAI is running on `http://localhost:8080`:
+    
+    ```bash
+    cd handsaiv3
+    ./mvnw spring-boot:run
+    ```
+  </Step>
+  
+  <Step title="Go Installed (for building from source)">
+    If building from source, install Go 1.21 or later:
+    
+    ```bash
+    go version
+    ```
+    
+    Download from [golang.org](https://golang.org/dl/) if needed.
+  </Step>
+</Steps>
+
+## Installation
+
+<Tabs>
+  <Tab title="Download Binary">
+    Download the pre-built binary from the releases page:
+    
+    ```bash
+    # Download latest release
+    curl -L -o handsai-mcp https://github.com/Vrivaans/handsai-bridge/releases/latest/download/handsai-mcp-linux
+    
+    # Make executable
+    chmod +x handsai-mcp
+    
+    # Move to a permanent location
+    sudo mv handsai-mcp /usr/local/bin/
+    ```
+    
+    <Note>
+      Replace `handsai-mcp-linux` with `handsai-mcp-macos` or `handsai-mcp-windows.exe` based on your platform.
+    </Note>
+  </Tab>
+  
+  <Tab title="Build from Source">
+    Clone and build the bridge from source:
+    
+    ```bash
+    # Clone the repository
+    git clone https://github.com/Vrivaans/handsai-bridge.git
+    cd handsai-bridge
+    
+    # Build the binary
+    go build -o handsai-mcp main.go
+    
+    # Move to a permanent location
+    sudo mv handsai-mcp /usr/local/bin/
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration for MCP Clients
+
+### Claude Desktop
+
+Add HandsAI to your Claude Desktop configuration:
+
+<Steps>
+  <Step title="Locate Configuration File">
+    Find your Claude Desktop config file:
+    
+    - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+    - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+    - **Linux**: `~/.config/Claude/claude_desktop_config.json`
+  </Step>
+  
+  <Step title="Edit Configuration">
+    Add the HandsAI bridge to the `mcpServers` section:
+    
+    ```json claude_desktop_config.json
+    {
+      "mcpServers": {
+        "handsai": {
+          "command": "/usr/local/bin/handsai-mcp",
+          "args": ["mcp"]
+        }
+      }
+    }
+    ```
+    
+    <Warning>
+      Use the **absolute path** to the `handsai-mcp` binary. Relative paths and `~` may not work.
+    </Warning>
+  </Step>
+  
+  <Step title="Restart Claude Desktop">
+    Quit and restart Claude Desktop completely for changes to take effect.
+  </Step>
+  
+  <Step title="Verify Connection">
+    In Claude Desktop, you should see HandsAI tools available:
+    
+    ![Claude Desktop detecting HandsAI tools](https://raw.githubusercontent.com/Vrivaans/handsaiv3/main/docs/assets/claude-detecta-handsai.png)
+  </Step>
+</Steps>
+
+### Antigravity (VS Code Extension)
+
+Configure HandsAI in Antigravity's MCP settings:
+
+<Steps>
+  <Step title="Open MCP Configuration">
+    In VS Code, find the Antigravity MCP configuration file:
+    
+    - **macOS/Linux**: `~/.config/antigravity/mcp_config.json`
+    - **Windows**: `%APPDATA%\antigravity\mcp_config.json`
+  </Step>
+  
+  <Step title="Add HandsAI Server">
+    ```json mcp_config.json
+    {
+      "mcpServers": {
+        "handsai": {
+          "command": "/usr/local/bin/handsai-mcp",
+          "args": ["mcp"]
+        }
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Reload VS Code">
+    Reload the VS Code window or restart Antigravity.
+  </Step>
+  
+  <Step title="Verify Tools">
+    Antigravity should now display all tools registered in HandsAI:
+    
+    ![Antigravity detecting HandsAI tools](https://raw.githubusercontent.com/Vrivaans/handsaiv3/main/docs/assets/antigravity-detecta-tools.png)
+  </Step>
+</Steps>
+
+### Generic MCP Client
+
+For any MCP-compatible client:
+
+```json
+{
+  "mcpServers": {
+    "handsai": {
+      "command": "/absolute/path/to/handsai-mcp",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+## Advanced Configuration
+
+### Custom HandsAI Server URL
+
+If HandsAI is running on a different host or port, create a `config.json` file in the same directory as `handsai-mcp`:
+
+```json config.json
+{
+  "handsai_url": "http://192.168.1.100:8080"
+}
+```
+
+The bridge will automatically detect and use this configuration.
+
+### Environment Variables
+
+Alternatively, set the HandsAI URL via environment variable:
+
+```bash
+export HANDSAI_URL="http://192.168.1.100:8080"
+/usr/local/bin/handsai-mcp mcp
+```
+
+## Testing the Connection
+
+<Steps>
+  <Step title="Start HandsAI Server">
+    ```bash
+    cd handsaiv3
+    ./mvnw spring-boot:run
+    ```
+  </Step>
+  
+  <Step title="Register a Test Tool">
+    Open `http://localhost:8080` and register a simple API tool (e.g., weather API).
+  </Step>
+  
+  <Step title="Test Bridge Manually">
+    Run the bridge in standalone mode:
+    
+    ```bash
+    /usr/local/bin/handsai-mcp mcp
+    ```
+    
+    Send a test JSON-RPC message:
+    
+    ```json
+    {"jsonrpc":"2.0","method":"tools/list","id":1}
+    ```
+    
+    You should receive a list of available tools.
+  </Step>
+  
+  <Step title="Test from MCP Client">
+    In Claude Desktop or Antigravity, ask:
+    
+    > "What tools do you have access to?"
+    
+    The client should list all tools registered in HandsAI.
+  </Step>
+</Steps>
+
+## Usage in Action
+
+### Claude Desktop Example
+
+Claude executing a weather tool from HandsAI:
+
+![Claude executing HandsAI weather tool](https://raw.githubusercontent.com/Vrivaans/handsaiv3/main/docs/assets/handsai-uso.png)
+
+Claude sending an email via HandsAI + Resend:
+
+![HandsAI sending email with Resend](https://raw.githubusercontent.com/Vrivaans/handsaiv3/main/docs/assets/handsai-resend-works.png)
+
+### Antigravity Example
+
+Antigravity using HandsAI to check weather:
+
+![Antigravity using HandsAI weather tool](https://raw.githubusercontent.com/Vrivaans/handsaiv3/main/docs/assets/antigravity-uso-handsai.png)
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Bridge not connecting to HandsAI">
+    1. Verify HandsAI is running:
+       ```bash
+       curl http://localhost:8080/mcp/tools/list
+       ```
+    
+    2. Check the bridge logs for connection errors
+    
+    3. Ensure no firewall is blocking localhost:8080
+  </Accordion>
+  
+  <Accordion title="MCP client doesn't see tools">
+    1. Verify the bridge binary path is absolute in the config
+    
+    2. Restart the MCP client completely
+    
+    3. Check that tools are registered in HandsAI at `http://localhost:8080`
+    
+    4. Test the bridge manually (see Testing section above)
+  </Accordion>
+  
+  <Accordion title="Permission denied when running bridge">
+    Make the binary executable:
+    
+    ```bash
+    chmod +x /usr/local/bin/handsai-mcp
+    ```
+  </Accordion>
+  
+  <Accordion title="Tools not updating after adding new ones">
+    The bridge caches tool definitions. Restart your MCP client to refresh the tool list.
+  </Accordion>
+</AccordionGroup>
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Register APIs" icon="plus" href="/quickstart">
+    Start registering external APIs as tools
+  </Card>
+  <Card title="Use Cases" icon="lightbulb" href="/use-cases/overview">
+    Explore pre-built integrations and examples
+  </Card>
+</CardGroup>

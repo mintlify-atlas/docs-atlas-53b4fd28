@@ -1,0 +1,160 @@
+---
+title: 'Weather API Integration'
+description: 'Get current weather data for any city using WeatherAPI.com'
+icon: 'cloud-sun'
+---
+
+# Weather API Integration
+
+This use case shows how to integrate [WeatherAPI.com](https://www.weatherapi.com/) with HandsAI so your LLM can query current weather for any city in real-time.
+
+## What It Does
+
+The Weather API integration allows your LLM to:
+- Get current weather conditions for any city
+- Access temperature, humidity, wind speed, and more
+- Receive real-time data from WeatherAPI.com
+
+## Setup
+
+### 1. Get Your API Key
+
+1. Sign up for a free account at [WeatherAPI.com](https://www.weatherapi.com/)
+2. Copy your API key from the dashboard
+
+### 2. Import the Configuration
+
+Import the Weather API configuration using the HandsAI import endpoint:
+
+```bash
+curl -X POST http://localhost:8080/api/import/providers \
+  -H "Content-Type: application/json" \
+  -d '[{
+    "name": "API Weather",
+    "code": "weather",
+    "baseUrl": "https://api.weatherapi.com",
+    "authenticationType": "API_KEY",
+    "apiKeyLocation": "QUERY_PARAMETER",
+    "apiKeyName": "key",
+    "apiKeyValue": "YOUR_API_KEY_HERE",
+    "tools": [
+      {
+        "name": "Servicio de clima",
+        "code": "api-clima",
+        "description": "Obtiene el clima actual para una ciudad específica.",
+        "endpointPath": "/v1/current.json",
+        "httpMethod": "GET",
+        "parameters": [
+          {
+            "name": "q",
+            "type": "STRING",
+            "description": "Nombre de la ciudad",
+            "required": true,
+            "defaultValue": ""
+          }
+        ]
+      }
+    ]
+  }]'
+```
+
+<Warning>
+Replace `YOUR_API_KEY_HERE` with your actual WeatherAPI key.
+</Warning>
+
+### 3. Verify the Tool is Available
+
+Check that the tool is registered and available:
+
+```bash
+curl http://localhost:8080/mcp/tools/list
+```
+
+You should see `"Servicio de clima"` in the tools list.
+
+## Example Tool Call
+
+Once configured, your LLM can call the weather tool automatically. Here's what happens behind the scenes:
+
+**User asks:**
+> "What's the current weather in Buenos Aires?"
+
+**LLM calls the tool:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "Servicio de clima",
+    "arguments": {
+      "q": "Buenos Aires"
+    }
+  },
+  "id": "msg_123"
+}
+```
+
+**HandsAI executes:**
+```
+GET https://api.weatherapi.com/v1/current.json?key=YOUR_API_KEY&q=Buenos+Aires
+```
+
+## Real Response Format
+
+WeatherAPI returns comprehensive weather data:
+
+```json
+{
+  "location": {
+    "name": "Buenos Aires",
+    "region": "Ciudad Autónoma de Buenos Aires",
+    "country": "Argentina",
+    "lat": -34.61,
+    "lon": -58.38,
+    "tz_id": "America/Argentina/Buenos_Aires",
+    "localtime": "2026-03-03 12:30"
+  },
+  "current": {
+    "temp_c": 15.0,
+    "temp_f": 59.0,
+    "condition": {
+      "text": "Partly cloudy",
+      "icon": "//cdn.weatherapi.com/weather/64x64/day/116.png"
+    },
+    "wind_kph": 13.0,
+    "wind_dir": "SE",
+    "humidity": 67,
+    "feelslike_c": 14.2,
+    "uv": 4.0
+  }
+}
+```
+
+## Use in Claude, Antigravity, or Any MCP Client
+
+With [HandsAI Bridge](https://github.com/Vrivaans/handsai-bridge) configured, your MCP client can use this tool immediately:
+
+```json
+{
+  "mcpServers": {
+    "handsai": {
+      "command": "/path/to/handsai-mcp",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+The LLM will automatically discover and use the weather tool when users ask weather-related questions.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Social Media" icon="share-nodes" href="/use-cases/social-media">
+    Post to multiple platforms with Ayrshare
+  </Card>
+  
+  <Card title="Email" icon="envelope" href="/use-cases/email">
+    Send emails with Resend API
+  </Card>
+</CardGroup>

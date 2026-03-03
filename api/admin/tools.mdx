@@ -1,0 +1,472 @@
+---
+title: 'Tool Management'
+description: 'CRUD operations for API tool definitions'
+api: 'GET /admin/tools/api'
+---
+
+## List All Tools
+
+Retrieve all API tool definitions registered in HandsAI.
+
+<Note>
+This endpoint returns a flat list of all tools, including their parameters and provider information.
+</Note>
+
+### Request
+
+```bash
+curl -X GET "http://localhost:8080/admin/tools/api" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Response
+
+Returns an array of `ApiToolResponse` objects:
+
+<ResponseField name="id" type="Long">
+  Unique identifier for the tool
+</ResponseField>
+
+<ResponseField name="code" type="string">
+  Unique code identifier for the tool (used in MCP protocol)
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Display name of the tool
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Detailed description of what the tool does
+</ResponseField>
+
+<ResponseField name="providerId" type="Long">
+  ID of the associated API provider
+</ResponseField>
+
+<ResponseField name="providerName" type="string">
+  Name of the associated API provider
+</ResponseField>
+
+<ResponseField name="endpointPath" type="string">
+  Relative path to append to the provider's base URL
+</ResponseField>
+
+<ResponseField name="httpMethod" type="HttpMethodEnum">
+  HTTP method for the endpoint. Possible values:
+  - `GET`
+  - `POST`
+  - `PUT`
+  - `DELETE`
+  - `PATCH`
+  - `HEAD`
+  - `OPTIONS`
+  - `TRACE`
+</ResponseField>
+
+<ResponseField name="enabled" type="boolean">
+  Whether the tool is currently enabled for use
+</ResponseField>
+
+<ResponseField name="healthy" type="boolean">
+  Health status of the tool endpoint
+</ResponseField>
+
+<ResponseField name="lastHealthCheck" type="Instant">
+  Timestamp of the last health check (ISO-8601 format)
+</ResponseField>
+
+<ResponseField name="isExportable" type="boolean">
+  Whether this tool can be exported to external systems
+</ResponseField>
+
+<ResponseField name="parameters" type="array">
+  Array of tool parameter definitions
+  
+  <Expandable title="ToolParameterResponse properties">
+    <ResponseField name="id" type="Long">
+      Unique identifier for the parameter
+    </ResponseField>
+    
+    <ResponseField name="code" type="string">
+      Parameter code identifier
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      Parameter display name
+    </ResponseField>
+    
+    <ResponseField name="type" type="ParameterType">
+      Data type of the parameter. Possible values:
+      - `STRING`
+      - `NUMBER`
+      - `BOOLEAN`
+      - `OBJECT`
+      - `ARRAY`
+    </ResponseField>
+    
+    <ResponseField name="description" type="string">
+      Description of the parameter's purpose
+    </ResponseField>
+    
+    <ResponseField name="required" type="boolean">
+      Whether this parameter is required
+    </ResponseField>
+    
+    <ResponseField name="defaultValue" type="string">
+      Default value if not provided
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Response
+
+```json
+[
+  {
+    "id": 1,
+    "code": "github_create_issue",
+    "name": "Create GitHub Issue",
+    "description": "Creates a new issue in a GitHub repository",
+    "providerId": 5,
+    "providerName": "GitHub API",
+    "endpointPath": "/repos/{owner}/{repo}/issues",
+    "httpMethod": "POST",
+    "enabled": true,
+    "healthy": true,
+    "lastHealthCheck": "2026-03-03T10:30:00Z",
+    "isExportable": true,
+    "parameters": [
+      {
+        "id": 10,
+        "code": "owner",
+        "name": "Repository Owner",
+        "type": "STRING",
+        "description": "GitHub username or organization",
+        "required": true,
+        "defaultValue": null
+      },
+      {
+        "id": 11,
+        "code": "repo",
+        "name": "Repository Name",
+        "type": "STRING",
+        "description": "Name of the repository",
+        "required": true,
+        "defaultValue": null
+      },
+      {
+        "id": 12,
+        "code": "title",
+        "name": "Issue Title",
+        "type": "STRING",
+        "description": "Title of the issue",
+        "required": true,
+        "defaultValue": null
+      }
+    ]
+  }
+]
+```
+
+---
+
+## Get Tool by ID
+
+Retrieve a specific tool by its unique identifier.
+
+### Request
+
+```bash
+curl -X GET "http://localhost:8080/admin/tools/api/1" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Path Parameters
+
+<ParamField path="id" type="Long" required>
+  Unique identifier of the tool to retrieve
+</ParamField>
+
+### Response
+
+Returns a single `ApiToolResponse` object with all fields described in the [List All Tools](#list-all-tools) section.
+
+### Example Response
+
+```json
+{
+  "id": 1,
+  "code": "github_create_issue",
+  "name": "Create GitHub Issue",
+  "description": "Creates a new issue in a GitHub repository",
+  "providerId": 5,
+  "providerName": "GitHub API",
+  "endpointPath": "/repos/{owner}/{repo}/issues",
+  "httpMethod": "POST",
+  "enabled": true,
+  "healthy": true,
+  "lastHealthCheck": "2026-03-03T10:30:00Z",
+  "isExportable": true,
+  "parameters": [
+    {
+      "id": 10,
+      "code": "owner",
+      "name": "Repository Owner",
+      "type": "STRING",
+      "description": "GitHub username or organization",
+      "required": true,
+      "defaultValue": null
+    }
+  ]
+}
+```
+
+---
+
+## Create Tool
+
+Create a new API tool definition.
+
+### Request
+
+```bash
+curl -X POST "http://localhost:8080/admin/tools/api" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Create GitHub Issue",
+    "code": "github_create_issue",
+    "enabled": true,
+    "description": "Creates a new issue in a GitHub repository",
+    "providerId": 5,
+    "endpointPath": "/repos/{owner}/{repo}/issues",
+    "httpMethod": "POST",
+    "isExportable": true,
+    "parameters": [
+      {
+        "name": "owner",
+        "type": "STRING",
+        "description": "GitHub username or organization",
+        "required": true,
+        "defaultValue": null
+      },
+      {
+        "name": "repo",
+        "type": "STRING",
+        "description": "Name of the repository",
+        "required": true,
+        "defaultValue": null
+      },
+      {
+        "name": "title",
+        "type": "STRING",
+        "description": "Title of the issue",
+        "required": true,
+        "defaultValue": null
+      }
+    ]
+  }'
+```
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Display name of the tool
+</ParamField>
+
+<ParamField body="code" type="string" required>
+  Unique code identifier for the tool
+</ParamField>
+
+<ParamField body="enabled" type="boolean">
+  Whether the tool should be enabled immediately (defaults to true)
+</ParamField>
+
+<ParamField body="description" type="string" required>
+  Detailed description of what the tool does
+</ParamField>
+
+<ParamField body="providerId" type="Long" required>
+  ID of the API provider to use for this tool
+</ParamField>
+
+<ParamField body="endpointPath" type="string" required>
+  Relative endpoint path (appended to provider's baseUrl)
+</ParamField>
+
+<ParamField body="httpMethod" type="HttpMethodEnum" required>
+  HTTP method for the endpoint (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS, TRACE)
+</ParamField>
+
+<ParamField body="isExportable" type="boolean">
+  Whether this tool can be exported to external systems
+</ParamField>
+
+<ParamField body="parameters" type="array">
+  Array of parameter definitions for this tool
+  
+  <Expandable title="ToolParameterRequest properties">
+    <ParamField body="name" type="string" required>
+      Parameter name
+    </ParamField>
+    
+    <ParamField body="type" type="ParameterType" required>
+      Data type (STRING, NUMBER, BOOLEAN, OBJECT, ARRAY)
+    </ParamField>
+    
+    <ParamField body="description" type="string">
+      Description of the parameter
+    </ParamField>
+    
+    <ParamField body="required" type="boolean">
+      Whether this parameter is required
+    </ParamField>
+    
+    <ParamField body="defaultValue" type="string">
+      Default value if not provided
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+Returns an `ApiResponse` object:
+
+<ResponseField name="status" type="integer">
+  HTTP status code (200 for success)
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Success message
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "status": 200,
+  "message": "Tool creada correctamente"
+}
+```
+
+---
+
+## Update Tool
+
+Update an existing API tool definition.
+
+### Request
+
+```bash
+curl -X PUT "http://localhost:8080/admin/tools/api/1" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Create GitHub Issue (Updated)",
+    "code": "github_create_issue",
+    "enabled": true,
+    "description": "Creates a new issue in a GitHub repository with labels",
+    "providerId": 5,
+    "endpointPath": "/repos/{owner}/{repo}/issues",
+    "httpMethod": "POST",
+    "isExportable": true,
+    "parameters": [
+      {
+        "name": "owner",
+        "type": "STRING",
+        "description": "GitHub username or organization",
+        "required": true,
+        "defaultValue": null
+      },
+      {
+        "name": "repo",
+        "type": "STRING",
+        "description": "Name of the repository",
+        "required": true,
+        "defaultValue": null
+      },
+      {
+        "name": "title",
+        "type": "STRING",
+        "description": "Title of the issue",
+        "required": true,
+        "defaultValue": null
+      },
+      {
+        "name": "labels",
+        "type": "ARRAY",
+        "description": "Labels to apply to the issue",
+        "required": false,
+        "defaultValue": null
+      }
+    ]
+  }'
+```
+
+### Path Parameters
+
+<ParamField path="id" type="Long" required>
+  Unique identifier of the tool to update
+</ParamField>
+
+### Request Body
+
+Same as [Create Tool](#create-tool) request body.
+
+### Response
+
+Returns the updated `ApiToolResponse` object with all fields.
+
+---
+
+## Delete Tool
+
+Delete an API tool definition.
+
+### Request
+
+```bash
+curl -X DELETE "http://localhost:8080/admin/tools/api/1" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Path Parameters
+
+<ParamField path="id" type="Long" required>
+  Unique identifier of the tool to delete
+</ParamField>
+
+### Response
+
+Returns HTTP 204 No Content on successful deletion.
+
+<Warning>
+Deleting a tool is permanent and cannot be undone. Any references to this tool will become invalid.
+</Warning>
+
+---
+
+## Validate Tool Health
+
+Validate the health of a tool's endpoint by making a test request.
+
+### Request
+
+```bash
+curl -X POST "http://localhost:8080/admin/tools/api/1/validate" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Path Parameters
+
+<ParamField path="id" type="Long" required>
+  Unique identifier of the tool to validate
+</ParamField>
+
+### Response
+
+Returns the updated `ApiToolResponse` object with refreshed `healthy` and `lastHealthCheck` fields.
+
+<Info>
+The health check performs an actual request to the tool's endpoint to verify it's accessible and responding correctly.
+</Info>

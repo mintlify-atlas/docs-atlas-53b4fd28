@@ -1,0 +1,454 @@
+---
+title: Technology Stack
+description: Complete overview of HandsAI's technology stack and dependencies
+---
+
+## Overview
+
+HandsAI is built on modern Java technologies optimized for performance, developer productivity, and GraalVM native compilation. This page documents all major technologies and their versions.
+
+## Core Platform
+
+### Java 21 LTS
+
+HandsAI uses **Java 21 LTS** (Long-Term Support), leveraging cutting-edge language features:
+
+#### Records (JEP 395)
+
+Immutable data carriers for DTOs:
+
+```java
+public record ApiProviderResponse(
+    Long id,
+    String name,
+    String baseUrl,
+    AuthenticationTypeEnum authenticationType
+) {
+    public static ApiProviderResponse from(ApiProvider provider) {
+        return new ApiProviderResponse(
+            provider.getId(),
+            provider.getName(),
+            provider.getBaseUrl(),
+            provider.getAuthenticationType()
+        );
+    }
+}
+```
+
+Benefits:
+- Concise syntax for data classes
+- Immutable by default
+- Built-in `equals()`, `hashCode()`, `toString()`
+- Pattern matching support
+
+#### Pattern Matching for switch (JEP 441)
+
+Type-safe conditional logic:
+
+```java
+String formatResponse(Object result) {
+    return switch (result) {
+        case String s -> "Text: " + s;
+        case Integer i -> "Number: " + i;
+        case ApiProviderResponse r -> "Provider: " + r.name();
+        case null -> "No result";
+        default -> result.toString();
+    };
+}
+```
+
+#### Virtual Threads (JEP 444)
+
+Lightweight concurrency for handling thousands of concurrent MCP requests:
+
+```properties
+# application.properties
+spring.threads.virtual.enabled=true
+```
+
+Virtual threads enable:
+- Massive concurrency without thread pool tuning
+- Simplified asynchronous code
+- Better resource utilization
+
+## Spring Framework
+
+### Spring Boot 3.5.4
+
+Core framework providing:
+- Dependency injection
+- Auto-configuration
+- Embedded web server (Tomcat)
+- Production-ready features (health checks, metrics)
+
+```xml
+<parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.4</version>
+</parent>
+```
+
+### Spring MVC (Web Layer)
+
+RESTful API framework:
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+```
+
+Used for:
+- REST endpoints (`@RestController`)
+- Request/response mapping
+- JSON serialization (Jackson)
+- Error handling
+
+### Spring Data JPA (Persistence Layer)
+
+Database abstraction layer:
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+```
+
+Features:
+- Repository pattern implementation
+- Query derivation from method names
+- JPQL and native SQL support
+- Transaction management
+
+Example repository:
+
+```java
+public interface ApiProviderRepository extends JpaRepository<ApiProvider, Long> {
+    Optional<ApiProvider> findByCode(String code);
+    List<ApiProvider> findByEnabledTrue();
+}
+```
+
+### Spring Validation
+
+Request validation with Jakarta Bean Validation:
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-validation</artifactId>
+</dependency>
+```
+
+Usage:
+
+```java
+public record CreateApiProviderRequest(
+    @NotBlank(message = "Name is required")
+    String name,
+    
+    @NotBlank(message = "Base URL is required")
+    @Pattern(regexp = "^https?://.*", message = "Must be valid HTTP(S) URL")
+    String baseUrl
+) {}
+```
+
+## Database
+
+### SQLite with Hibernate Community Dialects
+
+Lightweight embedded database:
+
+```xml
+<dependency>
+    <groupId>org.xerial</groupId>
+    <artifactId>sqlite-jdbc</artifactId>
+    <scope>runtime</scope>
+</dependency>
+<dependency>
+    <groupId>org.hibernate.orm</groupId>
+    <artifactId>hibernate-community-dialects</artifactId>
+</dependency>
+```
+
+Configuration:
+
+```properties
+# SQLite Database Configuration
+spring.datasource.url=jdbc:sqlite:handsai.db?journal_mode=WAL&busy_timeout=5000
+spring.datasource.driver-class-name=org.sqlite.JDBC
+
+# Hibernate Configuration
+spring.jpa.database-platform=org.hibernate.community.dialect.SQLiteDialect
+spring.jpa.hibernate.ddl-auto=update
+```
+
+Key settings:
+- **WAL Mode** - Write-Ahead Logging for better concurrency
+- **busy_timeout=5000** - Wait up to 5 seconds if database is locked
+- **ddl-auto=update** - Auto-update schema on entity changes
+
+Why SQLite?
+- Zero configuration
+- Single file database (`handsai.db`)
+- Perfect for local AI agent deployments
+- Fast startup (critical for GraalVM)
+
+### HikariCP Connection Pool
+
+High-performance JDBC connection pool (included with Spring Boot):
+
+```properties
+spring.datasource.hikari.maximum-pool-size=20
+spring.datasource.hikari.minimum-idle=5
+spring.datasource.hikari.idle-timeout=300000
+spring.datasource.hikari.max-lifetime=600000
+spring.datasource.hikari.connection-timeout=30000
+```
+
+## Code Generation
+
+### Lombok
+
+Boilerplate reduction library:
+
+```xml
+<dependency>
+    <groupId>org.projectlombok</groupId>
+    <artifactId>lombok</artifactId>
+    <optional>true</optional>
+</dependency>
+```
+
+Commonly used annotations:
+
+| Annotation | Purpose | Example |
+|------------|---------|----------|
+| `@Getter` / `@Setter` | Auto-generate accessors | Entity fields |
+| `@SuperBuilder` | Builder pattern with inheritance | Entity builders |
+| `@NoArgsConstructor` | No-argument constructor | JPA requirement |
+| `@AllArgsConstructor` | All-fields constructor | Testing |
+| `@Slf4j` | Inject SLF4J logger | All services |
+| `@Builder.Default` | Default value in builder | Boolean flags |
+
+Example entity:
+
+```java
+@Entity
+@Getter
+@Setter
+@SuperBuilder
+@NoArgsConstructor
+@AllArgsConstructor
+public class ApiTool extends BaseModel {
+    private String name;
+    private String description;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "provider_id", nullable = false)
+    private ApiProvider provider;
+    
+    @Enumerated(EnumType.STRING)
+    private HttpMethodEnum httpMethod;
+    
+    @Column(columnDefinition = "boolean default false")
+    @lombok.Builder.Default
+    private boolean isExportable = false;
+}
+```
+
+## Security
+
+### Jasypt Spring Boot Starter 3.0.5
+
+Encryption for sensitive configuration values:
+
+```xml
+<dependency>
+    <groupId>com.github.ulisesbocchio</groupId>
+    <artifactId>jasypt-spring-boot-starter</artifactId>
+    <version>3.0.5</version>
+</dependency>
+```
+
+Configuration:
+
+```properties
+jasypt.encryptor.password=${JASYPT_ENCRYPTOR_PASSWORD:handsai-secret-key}
+jasypt.encryptor.algorithm=PBEWithMD5AndDES
+jasypt.encryptor.iv-generator-classname=org.jasypt.iv.NoIvGenerator
+```
+
+Usage - encrypting API keys:
+
+```java
+@Service
+public class EncryptionService {
+    @Autowired
+    private StringEncryptor encryptor;
+    
+    public String encryptApiKey(String apiKey) {
+        return encryptor.encrypt(apiKey);
+    }
+    
+    public String decryptApiKey(String encrypted) {
+        return encryptor.decrypt(encrypted);
+    }
+}
+```
+
+## Native Compilation
+
+### GraalVM Native Image Support
+
+Ahead-of-time (AOT) compilation for instant startup:
+
+```xml
+<plugin>
+    <groupId>org.graalvm.buildtools</groupId>
+    <artifactId>native-maven-plugin</artifactId>
+</plugin>
+```
+
+Build native executable:
+
+```bash
+./mvnw -Pnative native:compile
+```
+
+Performance benefits:
+- **Startup time**: < 1.5 seconds (vs ~15 seconds for JVM)
+- **Memory footprint**: ~50MB (vs ~300MB for JVM)
+- **Instant scale-to-zero** for serverless deployments
+
+<Warning>
+All code must be GraalVM-compatible. See [GraalVM Compatibility](/dev/graalvm-compatibility) for requirements.
+</Warning>
+
+## Build System
+
+### Maven 3.x
+
+Project build and dependency management:
+
+```xml
+<project>
+    <groupId>org.dynamcorp</groupId>
+    <artifactId>hands-ai-v2</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>hands-ai-v2</name>
+    <description>Registro Dinámico de Herramientas para LLMs</description>
+</project>
+```
+
+Common commands:
+
+```bash
+# Clean build
+./mvnw clean install
+
+# Run application
+./mvnw spring-boot:run
+
+# Run tests
+./mvnw test
+
+# Build native image
+./mvnw -Pnative native:compile
+```
+
+## Development Tools
+
+### Spring Boot DevTools
+
+Development-time enhancements:
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-devtools</artifactId>
+    <scope>runtime</scope>
+    <optional>true</optional>
+</dependency>
+```
+
+Features:
+- Automatic restart on code changes
+- LiveReload support
+- Development-only property defaults
+
+### Spring Boot Starter Test
+
+Testing framework:
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-test</artifactId>
+    <scope>test</scope>
+</dependency>
+```
+
+Includes:
+- JUnit 5
+- Mockito
+- AssertJ
+- Spring Test & Spring Boot Test
+
+## Version Summary
+
+| Technology | Version | Purpose |
+|------------|---------|----------|
+| Java | 21 LTS | Runtime platform |
+| Spring Boot | 3.5.4 | Application framework |
+| SQLite JDBC | (managed) | Database driver |
+| Hibernate Community Dialects | (managed) | SQLite support |
+| Lombok | (managed) | Boilerplate reduction |
+| Jasypt Spring Boot | 3.0.5 | Encryption |
+| GraalVM Native Maven Plugin | (managed) | Native compilation |
+| HikariCP | (managed) | Connection pooling |
+| Jackson | (managed) | JSON serialization |
+
+All Spring-managed dependencies inherit versions from `spring-boot-starter-parent:3.5.4`.
+
+## Architecture Diagram
+
+```
+┌─────────────────────────────────────────────┐
+│          MCP Client (Claude, etc.)          │
+└─────────────────┬───────────────────────────┘
+                  │ stdio (JSON-RPC)
+┌─────────────────▼───────────────────────────┐
+│          handsai-go-bridge (Go)             │
+└─────────────────┬───────────────────────────┘
+                  │ HTTP REST
+┌─────────────────▼───────────────────────────┐
+│           Spring Boot 3.5.4                 │
+│  ┌────────────────────────────────────────┐ │
+│  │  Controllers (REST + MCP endpoints)    │ │
+│  └─────────────────┬──────────────────────┘ │
+│  ┌─────────────────▼──────────────────────┐ │
+│  │  Services (Business Logic)             │ │
+│  └─────────────────┬──────────────────────┘ │
+│  ┌─────────────────▼──────────────────────┐ │
+│  │  Repositories (Spring Data JPA)        │ │
+│  └─────────────────┬──────────────────────┘ │
+│                    │                         │
+│  ┌─────────────────▼──────────────────────┐ │
+│  │  SQLite Database (handsai.db)          │ │
+│  └────────────────────────────────────────┘ │
+└─────────────────────────────────────────────┘
+                  │ HTTP
+┌─────────────────▼───────────────────────────┐
+│        External REST APIs (dynamic)         │
+└─────────────────────────────────────────────┘
+```
+
+## Next Steps
+
+- [Contributing Guide](/dev/contributing) - Learn how to contribute
+- [Database Schema](/dev/database-schema) - Understand the data model
+- [GraalVM Compatibility](/dev/graalvm-compatibility) - Native image requirements

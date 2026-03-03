@@ -1,0 +1,195 @@
+---
+title: GET /mcp/tools/list
+description: Discover all available tools registered in HandsAI
+api: GET /mcp/tools/list
+---
+
+## Endpoint Details
+
+**Method**: `GET`  
+**Path**: `/mcp/tools/list`  
+**Authentication**: None required (public endpoint)
+
+## Purpose
+
+This endpoint returns a JSON-RPC 2.0 response containing all tools currently registered in HandsAI. LLM clients use this endpoint to discover which tools are available for execution.
+
+Tools are dynamically loaded from the database and cached for performance. Each tool includes:
+- A unique **name** (code)
+- A human-readable **description**
+- An **inputSchema** defining required and optional parameters
+
+## Request Format
+
+This is a simple GET request with no parameters required:
+
+```bash
+curl http://localhost:8080/mcp/tools/list
+```
+
+Alternatively, you can send a JSON-RPC request body (though the controller ignores it for GET requests):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/list",
+  "id": "1"
+}
+```
+
+## Response Schema
+
+The response follows JSON-RPC 2.0 format:
+
+<ResponseField name="jsonrpc" type="string" required>
+  Always `"2.0"` indicating JSON-RPC protocol version
+</ResponseField>
+
+<ResponseField name="result" type="object" required>
+  Contains the tools list result
+  
+  <Expandable title="result properties">
+    <ResponseField name="tools" type="array" required>
+      Array of available tool definitions
+      
+      <Expandable title="tool object">
+        <ResponseField name="name" type="string" required>
+          Unique identifier for the tool (matches `ApiTool.code` in database)
+        </ResponseField>
+        
+        <ResponseField name="description" type="string" required>
+          Human-readable description of what the tool does
+        </ResponseField>
+        
+        <ResponseField name="inputSchema" type="object" required>
+          JSON Schema definition for tool parameters
+          
+          <Expandable title="inputSchema structure">
+            <ResponseField name="type" type="string" required>
+              Always `"object"` for tool parameters
+            </ResponseField>
+            
+            <ResponseField name="properties" type="object" required>
+              Key-value map where keys are parameter names and values are parameter schemas
+              
+              Each parameter schema includes:
+              - `type`: Parameter type (string, number, boolean, array, object)
+              - `description`: What the parameter is for
+              - `items`: (For array types) Schema for array elements
+            </ResponseField>
+            
+            <ResponseField name="required" type="array" required>
+              Array of parameter names that are mandatory
+            </ResponseField>
+          </Expandable>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="error" type="object">
+  Present only if an error occurred (replaces `result`)
+  
+  <Expandable title="error properties">
+    <ResponseField name="code" type="integer" required>
+      Error code (e.g., `-32603` for internal error)
+    </ResponseField>
+    
+    <ResponseField name="message" type="string" required>
+      Human-readable error description
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "tools": [
+      {
+        "name": "weather_get",
+        "description": "Get current weather for a location",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name or coordinates"
+            },
+            "units": {
+              "type": "string",
+              "description": "Temperature units (celsius or fahrenheit)"
+            }
+          },
+          "required": ["location"]
+        }
+      },
+      {
+        "name": "search_documents",
+        "description": "Search through indexed documents",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search query string"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Filter by document tags"
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of results"
+            }
+          },
+          "required": ["query"]
+        }
+      }
+    ]
+  }
+}
+```
+
+## Error Response
+
+If tool discovery fails (e.g., database unavailable):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32603,
+    "message": "Internal error discovering tools"
+  }
+}
+```
+
+## Implementation Notes
+
+- Tools are converted from `ToolDefinition` DTOs to `McpTool` format
+- The `inputSchema` field maps to the `parameters` field from `ToolDefinition`
+- Parameter schemas follow OpenAI function calling conventions
+- Array parameters include an `items` field specifying element types
+- Required parameters are extracted from the `ToolParameter.required` flag
+
+### Source Code Reference
+
+Implemented in:
+```java
+org.dynamcorp.handsaiv2.controller.MCPController.discoverTools()
+// Location: src/main/java/org/dynamcorp/handsaiv2/controller/MCPController.java:36
+```
+
+## cURL Example
+
+```bash
+curl -X GET http://localhost:8080/mcp/tools/list \
+  -H "Content-Type: application/json"
+```

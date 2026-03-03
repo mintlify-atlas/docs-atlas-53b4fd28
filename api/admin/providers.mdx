@@ -1,0 +1,454 @@
+---
+title: 'Provider Management'
+description: 'Configure external API providers with authentication'
+api: 'GET /admin/providers'
+---
+
+## List All Providers
+
+Retrieve all API provider configurations registered in HandsAI.
+
+### Request
+
+```bash
+curl -X GET "http://localhost:8080/admin/providers" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Response
+
+Returns an array of `ApiProviderResponse` objects:
+
+<ResponseField name="id" type="Long">
+  Unique identifier for the provider
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Display name of the provider
+</ResponseField>
+
+<ResponseField name="code" type="string">
+  Unique code identifier for the provider
+</ResponseField>
+
+<ResponseField name="baseUrl" type="string">
+  Base URL for all API requests to this provider
+</ResponseField>
+
+<ResponseField name="authenticationType" type="AuthenticationTypeEnum">
+  Type of authentication used. Possible values:
+  - `NONE` - No authentication required
+  - `API_KEY` - API key authentication
+  - `BEARER_TOKEN` - Bearer token authentication
+  - `BASIC_AUTH` - Basic HTTP authentication
+</ResponseField>
+
+<ResponseField name="apiKeyLocation" type="ApiKeyLocationEnum">
+  Where to include the API key/token. Possible values:
+  - `NONE` - Not applicable
+  - `HEADER` - Include in request headers
+  - `QUERY_PARAMETER` - Include as query parameter
+  - `IN_BODY` - Include in request body
+</ResponseField>
+
+<ResponseField name="apiKeyName" type="string">
+  Name of the header, query parameter, or body field for the API key
+</ResponseField>
+
+<ResponseField name="isExportable" type="boolean">
+  Whether this provider can be exported to external systems
+</ResponseField>
+
+<ResponseField name="customHeaders" type="object">
+  Map of custom headers to include in all requests (values are obscured as "generic_text" in responses)
+</ResponseField>
+
+<ResponseField name="isDynamicAuth" type="boolean">
+  Whether this provider uses dynamic authentication (token refresh)
+</ResponseField>
+
+<ResponseField name="dynamicAuthUrl" type="string">
+  URL endpoint for obtaining authentication tokens
+</ResponseField>
+
+<ResponseField name="dynamicAuthMethod" type="DynamicAuthMethodEnum">
+  HTTP method for dynamic auth requests. Possible values:
+  - `GET`
+  - `POST`
+</ResponseField>
+
+<ResponseField name="dynamicAuthPayload" type="string">
+  Payload for dynamic auth requests (values obscured in responses)
+</ResponseField>
+
+<ResponseField name="dynamicAuthPayloadType" type="DynamicAuthPayloadTypeEnum">
+  Format of the dynamic auth payload. Possible values:
+  - `JSON`
+  - `FORM_DATA`
+</ResponseField>
+
+<ResponseField name="dynamicAuthPayloadLocation" type="DynamicAuthPayloadLocationEnum">
+  Where to send the dynamic auth payload. Possible values:
+  - `BODY`
+  - `QUERY_PARAMETERS`
+  - `HEADERS`
+</ResponseField>
+
+<ResponseField name="dynamicAuthTokenExtractionPath" type="string">
+  JSON path to extract the token from the auth response (e.g., "$.access_token")
+</ResponseField>
+
+<ResponseField name="dynamicAuthInvalidationKeywords" type="string">
+  Keywords that indicate token expiration (e.g., "expired,unauthorized")
+</ResponseField>
+
+### Example Response
+
+```json
+[
+  {
+    "id": 1,
+    "name": "GitHub API",
+    "code": "github",
+    "baseUrl": "https://api.github.com",
+    "authenticationType": "BEARER_TOKEN",
+    "apiKeyLocation": "HEADER",
+    "apiKeyName": "Authorization",
+    "isExportable": true,
+    "customHeaders": {
+      "Accept": "application/vnd.github.v3+json",
+      "User-Agent": "HandsAI"
+    },
+    "isDynamicAuth": false,
+    "dynamicAuthUrl": null,
+    "dynamicAuthMethod": null,
+    "dynamicAuthPayload": null,
+    "dynamicAuthPayloadType": null,
+    "dynamicAuthPayloadLocation": null,
+    "dynamicAuthTokenExtractionPath": null,
+    "dynamicAuthInvalidationKeywords": null
+  },
+  {
+    "id": 2,
+    "name": "Slack API",
+    "code": "slack",
+    "baseUrl": "https://slack.com/api",
+    "authenticationType": "BEARER_TOKEN",
+    "apiKeyLocation": "HEADER",
+    "apiKeyName": "Authorization",
+    "isExportable": true,
+    "customHeaders": {},
+    "isDynamicAuth": true,
+    "dynamicAuthUrl": "https://slack.com/api/auth.test",
+    "dynamicAuthMethod": "POST",
+    "dynamicAuthPayload": "{\"token\":\"generic_text\"}",
+    "dynamicAuthPayloadType": "JSON",
+    "dynamicAuthPayloadLocation": "BODY",
+    "dynamicAuthTokenExtractionPath": "$.access_token",
+    "dynamicAuthInvalidationKeywords": "invalid_auth,token_revoked"
+  }
+]
+```
+
+---
+
+## Get Provider by ID
+
+Retrieve a specific provider by its unique identifier.
+
+### Request
+
+```bash
+curl -X GET "http://localhost:8080/admin/providers/1" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Path Parameters
+
+<ParamField path="id" type="Long" required>
+  Unique identifier of the provider to retrieve
+</ParamField>
+
+### Response
+
+Returns a single `ApiProviderResponse` object with all fields described in the [List All Providers](#list-all-providers) section.
+
+---
+
+## Create Provider
+
+Create a new API provider configuration.
+
+### Request - Static API Key
+
+```bash
+curl -X POST "http://localhost:8080/admin/providers" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "GitHub API",
+    "code": "github",
+    "baseUrl": "https://api.github.com",
+    "authenticationType": "BEARER_TOKEN",
+    "apiKeyLocation": "HEADER",
+    "apiKeyName": "Authorization",
+    "apiKeyValue": "ghp_xxxxxxxxxxxxxxxxxxxx",
+    "isExportable": true,
+    "customHeaders": {
+      "Accept": "application/vnd.github.v3+json",
+      "User-Agent": "HandsAI"
+    },
+    "isDynamicAuth": false
+  }'
+```
+
+### Request - Dynamic Authentication (OAuth)
+
+```bash
+curl -X POST "http://localhost:8080/admin/providers" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Custom OAuth API",
+    "code": "custom_oauth",
+    "baseUrl": "https://api.example.com",
+    "authenticationType": "BEARER_TOKEN",
+    "apiKeyLocation": "HEADER",
+    "apiKeyName": "Authorization",
+    "isExportable": false,
+    "isDynamicAuth": true,
+    "dynamicAuthUrl": "https://auth.example.com/oauth/token",
+    "dynamicAuthMethod": "POST",
+    "dynamicAuthPayload": "{\"grant_type\":\"client_credentials\",\"client_id\":\"YOUR_CLIENT_ID\",\"client_secret\":\"YOUR_CLIENT_SECRET\"}",
+    "dynamicAuthPayloadType": "JSON",
+    "dynamicAuthPayloadLocation": "BODY",
+    "dynamicAuthTokenExtractionPath": "$.access_token",
+    "dynamicAuthInvalidationKeywords": "expired,invalid_token,unauthorized"
+  }'
+```
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Display name of the provider
+</ParamField>
+
+<ParamField body="code" type="string" required>
+  Unique code identifier for the provider
+</ParamField>
+
+<ParamField body="baseUrl" type="string" required>
+  Base URL for all API requests (e.g., "https://api.github.com")
+</ParamField>
+
+<ParamField body="authenticationType" type="AuthenticationTypeEnum" required>
+  Type of authentication: `NONE`, `API_KEY`, `BEARER_TOKEN`, or `BASIC_AUTH`
+</ParamField>
+
+<ParamField body="apiKeyLocation" type="ApiKeyLocationEnum">
+  Where to include the API key: `NONE`, `HEADER`, `QUERY_PARAMETER`, or `IN_BODY`
+</ParamField>
+
+<ParamField body="apiKeyName" type="string">
+  Name of the header, query parameter, or body field for the API key
+</ParamField>
+
+<ParamField body="apiKeyValue" type="string">
+  The actual API key or token value (not returned in responses)
+</ParamField>
+
+<ParamField body="isExportable" type="boolean">
+  Whether this provider can be exported to external systems
+</ParamField>
+
+<ParamField body="customHeaders" type="object">
+  Map of custom headers to include in all requests (e.g., User-Agent, Accept)
+</ParamField>
+
+<ParamField body="isDynamicAuth" type="boolean">
+  Enable dynamic authentication (token refresh mechanism)
+</ParamField>
+
+<ParamField body="dynamicAuthUrl" type="string">
+  URL endpoint for obtaining authentication tokens (required if isDynamicAuth is true)
+</ParamField>
+
+<ParamField body="dynamicAuthMethod" type="DynamicAuthMethodEnum">
+  HTTP method for auth requests: `GET` or `POST`
+</ParamField>
+
+<ParamField body="dynamicAuthPayload" type="string">
+  Payload for dynamic auth requests (JSON string or form data)
+</ParamField>
+
+<ParamField body="dynamicAuthPayloadType" type="DynamicAuthPayloadTypeEnum">
+  Format of the payload: `JSON` or `FORM_DATA`
+</ParamField>
+
+<ParamField body="dynamicAuthPayloadLocation" type="DynamicAuthPayloadLocationEnum">
+  Where to send the payload: `BODY`, `QUERY_PARAMETERS`, or `HEADERS`
+</ParamField>
+
+<ParamField body="dynamicAuthTokenExtractionPath" type="string">
+  JSON path to extract the token from auth response (e.g., "$.access_token" or "$.data.token")
+</ParamField>
+
+<ParamField body="dynamicAuthInvalidationKeywords" type="string">
+  Comma-separated keywords indicating token expiration (e.g., "expired,unauthorized,invalid_token")
+</ParamField>
+
+### Response
+
+Returns the created `ApiProviderResponse` object with HTTP 201 Created status.
+
+<ResponseField name="id" type="Long">
+  Unique identifier of the newly created provider
+</ResponseField>
+
+<Info>
+Sensitive fields like `apiKeyValue` and actual `customHeaders` values are obscured in the response for security.
+</Info>
+
+---
+
+## Update Provider
+
+Update an existing API provider configuration.
+
+### Request
+
+```bash
+curl -X PUT "http://localhost:8080/admin/providers/1" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "GitHub API (Updated)",
+    "code": "github",
+    "baseUrl": "https://api.github.com",
+    "authenticationType": "BEARER_TOKEN",
+    "apiKeyLocation": "HEADER",
+    "apiKeyName": "Authorization",
+    "apiKeyValue": "ghp_new_token_xxxxxxxxxxxx",
+    "isExportable": true,
+    "customHeaders": {
+      "Accept": "application/vnd.github.v3+json",
+      "User-Agent": "HandsAI/2.0"
+    },
+    "isDynamicAuth": false
+  }'
+```
+
+### Path Parameters
+
+<ParamField path="id" type="Long" required>
+  Unique identifier of the provider to update
+</ParamField>
+
+### Request Body
+
+Same as [Create Provider](#create-provider) request body.
+
+<Note>
+All fields from the create request are available. Only provide fields you want to update.
+</Note>
+
+### Response
+
+Returns the updated `ApiProviderResponse` object.
+
+---
+
+## Delete Provider
+
+Delete an API provider configuration.
+
+### Request
+
+```bash
+curl -X DELETE "http://localhost:8080/admin/providers/1" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Path Parameters
+
+<ParamField path="id" type="Long" required>
+  Unique identifier of the provider to delete
+</ParamField>
+
+### Response
+
+Returns HTTP 204 No Content on successful deletion.
+
+<Warning>
+Deleting a provider will affect all tools that depend on it. Ensure no active tools reference this provider before deletion.
+</Warning>
+
+---
+
+## Authentication Configuration Examples
+
+### API Key in Header
+
+```json
+{
+  "authenticationType": "API_KEY",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "X-API-Key",
+  "apiKeyValue": "your-api-key-here"
+}
+```
+
+### Bearer Token
+
+```json
+{
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "apiKeyValue": "your-bearer-token"
+}
+```
+
+### API Key in Query Parameter
+
+```json
+{
+  "authenticationType": "API_KEY",
+  "apiKeyLocation": "QUERY_PARAMETER",
+  "apiKeyName": "api_key",
+  "apiKeyValue": "your-api-key-here"
+}
+```
+
+### OAuth 2.0 with Dynamic Authentication
+
+```json
+{
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "isDynamicAuth": true,
+  "dynamicAuthUrl": "https://auth.example.com/oauth/token",
+  "dynamicAuthMethod": "POST",
+  "dynamicAuthPayload": "{\"grant_type\":\"client_credentials\",\"client_id\":\"xxx\",\"client_secret\":\"yyy\"}",
+  "dynamicAuthPayloadType": "JSON",
+  "dynamicAuthPayloadLocation": "BODY",
+  "dynamicAuthTokenExtractionPath": "$.access_token",
+  "dynamicAuthInvalidationKeywords": "expired,invalid_token"
+}
+```
+
+### Basic Authentication
+
+```json
+{
+  "authenticationType": "BASIC_AUTH",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "apiKeyValue": "username:password"
+}
+```
+
+<Info>
+For Basic Auth, the `apiKeyValue` should be the base64-encoded "username:password" string, or provide the plain text and HandsAI will handle encoding.
+</Info>

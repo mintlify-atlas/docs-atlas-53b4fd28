@@ -1,0 +1,593 @@
+---
+title: 'Dynamic Tool Registry'
+description: 'How HandsAI registers, validates, and caches API tools'
+---
+
+## Overview
+
+HandsAI's **Dynamic Tool Registry** is the core system that allows you to add any REST API as an MCP-discoverable tool without writing code. Tools are stored in SQLite, validated for security, and cached in memory for fast access.
+
+## How Tools Are Registered
+
+There are two primary ways to register tools in HandsAI:
+
+### 1. UI-Based Registration
+
+The HandsAI frontend (Angular) provides a visual interface to:
+- Create API Providers (base URLs with authentication)
+- Add individual tools with endpoints and parameters
+- Test tools before enabling them
+- Enable/disable tools on the fly
+
+Changes made in the UI are persisted to the SQLite database and immediately reflected in the tool cache.
+
+### 2. JSON Import
+
+You can bulk-import tools using JSON files. HandsAI includes several pre-configured use cases in `/docs/casos-de-uso/`.
+
+**Example: Resend Email API**
+
+```json
+{
+  "name": "Resend API",
+  "code": "resend",
+  "baseUrl": "https://api.resend.com",
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "apiKeyValue": "<YOUR_API_KEY>",
+  "customHeaders": {
+    "Content-Type": "application/json",
+    "User-Agent": "HandsAI/1.0"
+  },
+  "tools": [
+    {
+      "name": "Enviar Email (Resend)",
+      "code": "resend-send-email",
+      "description": "Envía un correo electrónico usando la API de Resend.",
+      "endpointPath": "/emails",
+      "httpMethod": "POST",
+      "enabled": true,
+      "isExportable": true,
+      "parameters": [
+        {
+          "name": "from",
+          "type": "STRING",
+          "description": "Dirección de envío (ej. Acme <onboarding@resend.dev>)",
+          "required": true
+        },
+        {
+          "name": "to",
+          "type": "STRING",
+          "description": "Dirección del destinatario.",
+          "required": true
+        },
+        {
+          "name": "subject",
+          "type": "STRING",
+          "description": "Asunto del correo electrónico.",
+          "required": true
+        },
+        {
+          "name": "html",
+          "type": "STRING",
+          "description": "Cuerpo del correo en formato HTML.",
+          "required": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+Import via the UI or POST to `/api/import`.
+
+## Tool Definition Structure
+
+Every tool in HandsAI is defined by these core fields:
+
+<ParamField path="name" type="string" required>
+  Human-readable tool name (e.g., "Create GitHub Issue")
+</ParamField>
+
+<ParamField path="code" type="string" required>
+  Unique identifier for the tool (e.g., "github-create-issue"). Auto-generated if not provided.
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  Clear description of what the tool does. This helps AI agents understand when to use it.
+</ParamField>
+
+<ParamField path="endpointPath" type="string" required>
+  API endpoint path relative to the provider's baseUrl (e.g., "/repos/{owner}/{repo}/issues")
+</ParamField>
+
+<ParamField path="httpMethod" type="enum" required>
+  HTTP method: GET, POST, PUT, PATCH, DELETE
+</ParamField>
+
+<ParamField path="parameters" type="array">
+  List of tool parameters (see Parameter Structure below)
+</ParamField>
+
+<ParamField path="enabled" type="boolean" default="true">
+  Whether the tool is active and discoverable by MCP clients
+</ParamField>
+
+<ParamField path="healthy" type="boolean" default="true">
+  Health status (updated by validation checks)
+</ParamField>
+
+<ParamField path="isExportable" type="boolean" default="false">
+  Whether this tool can be exported and shared with others
+</ParamField>
+
+### Parameter Structure
+
+Each tool parameter defines an input argument:
+
+<ParamField path="name" type="string" required>
+  Parameter name (must match API expectations)
+</ParamField>
+
+<ParamField path="type" type="enum" required>
+  Data type: STRING, NUMBER, BOOLEAN, OBJECT, ARRAY
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  What this parameter does (shown to AI agents)
+</ParamField>
+
+<ParamField path="required" type="boolean" default="false">
+  Whether this parameter is mandatory
+</ParamField>
+
+<ParamField path="defaultValue" type="string">
+  Optional default value if not provided by the agent
+</ParamField>
+
+### Entity Model: ApiTool
+
+The `ApiTool` entity in HandsAI:
+
+```java
+@Entity
+@Table(name = "api_tools")
+public class ApiTool extends BaseModel {
+
+    private String name;
+    private String description;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "provider_id", nullable = false)
+    private ApiProvider provider;
+
+    private String endpointPath;
+
+    @Enumerated(EnumType.STRING)
+    private HttpMethodEnum httpMethod;
+
+    private Instant lastHealthCheck;
+    private boolean healthy;
+
+    @OneToMany(mappedBy = "apiTool", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<ToolParameter> parameters = new LinkedHashSet<>();
+
+    @Column(columnDefinition = "boolean default false")
+    private boolean isExportable = false;
+}
+```
+
+Each tool is linked to an `ApiProvider` which holds authentication and base URL configuration.
+
+## Provider Concept
+
+A **Provider** represents an external API service. Multiple tools can share one provider:
+
+<ParamField path="name" type="string" required>
+  Provider name (e.g., "GitHub REST API")
+</ParamField>
+
+<ParamField path="baseUrl" type="string" required>
+  Base URL for all API requests (e.g., "https://api.github.com")
+</ParamField>
+
+<ParamField path="authenticationType" type="enum" required>
+  Authentication method: NONE, API_KEY, BEARER_TOKEN, BASIC_AUTH
+</ParamField>
+
+<ParamField path="apiKeyLocation" type="enum">
+  Where to send the API key: HEADER, QUERY_PARAMETER, IN_BODY
+</ParamField>
+
+<ParamField path="apiKeyName" type="string">
+  Key name (e.g., "Authorization", "x-api-key")
+</ParamField>
+
+<ParamField path="apiKeyValue" type="string">
+  The actual API key or token (encrypted before storage)
+</ParamField>
+
+<ParamField path="customHeadersJson" type="string">
+  Optional custom headers as JSON (e.g., `{"User-Agent": "HandsAI/1.0"}`)
+</ParamField>
+
+<ParamField path="isDynamicAuth" type="boolean" default="false">
+  Whether authentication requires fetching a token dynamically
+</ParamField>
+
+### Entity Model: ApiProvider
+
+```java
+@Entity
+@Table(name = "api_providers")
+public class ApiProvider extends BaseModel {
+
+    private String name;
+
+    @Column(nullable = false)
+    private String baseUrl;
+
+    @Enumerated(EnumType.STRING)
+    private AuthenticationTypeEnum authenticationType;
+
+    @Enumerated(EnumType.STRING)
+    private ApiKeyLocationEnum apiKeyLocation;
+
+    private String apiKeyName;
+    private String apiKeyValue; // Encrypted
+
+    @Column(columnDefinition = "TEXT")
+    private String customHeadersJson;
+
+    // Dynamic Authentication Fields
+    @Column(columnDefinition = "boolean default false")
+    private boolean isDynamicAuth = false;
+
+    private String dynamicAuthUrl;
+    
+    @Enumerated(EnumType.STRING)
+    private DynamicAuthMethodEnum dynamicAuthMethod;
+
+    @Column(columnDefinition = "TEXT")
+    private String dynamicAuthPayload;
+
+    @Enumerated(EnumType.STRING)
+    private DynamicAuthPayloadTypeEnum dynamicAuthPayloadType;
+
+    @Enumerated(EnumType.STRING)
+    private DynamicAuthPayloadLocationEnum dynamicAuthPayloadLocation;
+
+    private String dynamicAuthTokenExtractionPath;
+
+    @OneToMany(mappedBy = "provider", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ApiTool> tools = new ArrayList<>();
+
+    @Column(columnDefinition = "boolean default false")
+    private boolean isExportable = false;
+}
+```
+
+Providers support both static authentication (API keys stored encrypted) and dynamic authentication (tokens fetched on-demand).
+
+## In-Memory Caching with ToolCacheManager
+
+HandsAI uses `ToolCacheManager` to cache tools in a `ConcurrentHashMap` for blazing-fast lookups during MCP tool discovery and execution.
+
+### Cache Initialization
+
+```java
+@Component
+public class ToolCacheManager {
+
+    private final ApiToolRepository apiToolRepository;
+    private final ConcurrentHashMap<String, ApiTool> toolCache = new ConcurrentHashMap<>();
+
+    @PostConstruct
+    public void initCache() {
+        log.info("Initializing tool cache");
+        List<ApiTool> activeTools = apiToolRepository.findAllEnabled();
+        activeTools.forEach(tool -> toolCache.put(tool.getCode(), tool));
+        log.info("Tool cache initialized with {} tools", activeTools.size());
+    }
+}
+```
+
+On startup, `ToolCacheManager` loads all **enabled** tools from the database into memory.
+
+### Cache Operations
+
+**Get All Cached Tools** (used by MCP discovery):
+
+```java
+public List<ApiTool> getAllCachedTools() {
+    return toolCache.values().stream()
+            .filter(tool -> tool.isEnabled() && tool.isHealthy())
+            .toList();
+}
+```
+
+**Get Single Tool** (used by MCP execution):
+
+```java
+public Optional<ApiTool> getCachedTool(String toolCode) {
+    return Optional.ofNullable(toolCache.get(toolCode))
+            .filter(tool -> tool.isEnabled() && tool.isHealthy());
+}
+```
+
+**Add or Update Tool**:
+
+```java
+public void addOrUpdateTool(ApiTool tool) {
+    if (tool.isEnabled() && tool.isHealthy()) {
+        toolCache.put(tool.getCode(), tool);
+        log.info("Tool {} added/updated in cache", tool.getCode());
+    } else {
+        toolCache.remove(tool.getCode());
+        log.info("Tool {} removed from cache due to disabled state or unhealthy status", tool.getCode());
+    }
+}
+```
+
+**Refresh Entire Cache**:
+
+```java
+public int refreshCache() {
+    List<ApiTool> tools = apiToolRepository.findAllEnabled();
+    toolCache.clear();
+    tools.forEach(tool -> toolCache.put(tool.getCode(), tool));
+    log.info("Cache refreshed with {} tools", tools.size());
+    return tools.size();
+}
+```
+
+The cache is automatically refreshed after tool creation, update, or deletion.
+
+### Why Caching Matters
+
+- **Speed**: No database queries during tool discovery (critical for fast MCP responses)
+- **Scalability**: Supports thousands of tools without performance degradation
+- **Concurrency**: `ConcurrentHashMap` allows safe concurrent access by virtual threads
+- **Filtering**: Only enabled and healthy tools are exposed to AI agents
+
+## Tool Validation and Schema Generation
+
+Before tools are cached, HandsAI validates them for:
+
+### 1. SSRF Protection
+
+HandsAI uses `SecurityValidator` to prevent Server-Side Request Forgery attacks:
+
+```java
+// Validates that baseUrl and endpointPath don't target internal networks
+securityValidator.validateUrl(provider.getBaseUrl());
+securityValidator.validateUrl(tool.getEndpointPath());
+```
+
+This blocks attempts to register tools pointing to:
+- `localhost` / `127.0.0.1`
+- Private IP ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`)
+- Cloud metadata endpoints (AWS, GCP, Azure)
+
+### 2. Health Checks
+
+Tools can be validated for health using `ToolValidationService`:
+
+```java
+@Override
+@Transactional
+public ApiToolResponse validateApiToolHealth(Long id) {
+    ApiTool apiTool = apiToolRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("ApiTool not found with id: " + id));
+    validateHealth(apiTool);
+    return ApiToolResponse.from(apiTool);
+}
+
+private void validateHealth(ApiTool apiTool) {
+    boolean isHealthy = toolValidationService.validateApiToolHealth(apiTool);
+    apiTool.setHealthy(isHealthy);
+    apiTool.setLastHealthCheck(Instant.now());
+    apiToolRepository.save(apiTool);
+}
+```
+
+Health checks verify that:
+- The provider's base URL is reachable
+- Authentication credentials are valid
+- The endpoint responds successfully
+
+### 3. JSON Schema Generation
+
+HandsAI automatically generates JSON Schema for tool parameters, which is returned in MCP discovery responses:
+
+```java
+private McpTool convertToMcpTool(ToolDefinition toolDef) {
+    return McpTool.builder()
+            .name(toolDef.name())
+            .description(toolDef.description())
+            .inputSchema(toolDef.parameters()) // JSON Schema object
+            .build();
+}
+```
+
+The schema is derived from tool parameters:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "owner": {
+      "type": "string",
+      "description": "Repository owner"
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository name"
+    }
+  },
+  "required": ["owner", "repo"]
+}
+```
+
+This schema allows AI agents to:
+- Understand parameter types
+- Know which parameters are required
+- Generate valid requests
+
+## Tool Creation Flow (ApiToolService)
+
+When you create a tool via UI or API, `ApiToolServiceImpl` handles the process:
+
+```java
+@Override
+@Transactional
+public ApiToolResponse createApiTool(CreateApiToolRequest request) {
+    log.info("Creating new API tool: {}", request.name());
+
+    // Generate unique code if not provided
+    String toolCode = (request.code() != null && !request.code().isBlank()) 
+        ? request.code()
+        : UUID.randomUUID().toString();
+
+    // Prevent duplicates
+    if (apiToolRepository.existsByCode(toolCode)) {
+        throw new IllegalArgumentException("Tool with code " + toolCode + " already exists");
+    }
+
+    // Fetch provider
+    ApiProvider provider = apiProviderRepository.findById(request.providerId())
+            .orElseThrow(() -> new ResourceNotFoundException("Provider not found with id: " + request.providerId()));
+
+    // Build tool entity
+    ApiTool apiTool = ApiTool.builder()
+            .name(request.name())
+            .code(toolCode)
+            .description(request.description())
+            .provider(provider)
+            .endpointPath(request.endpointPath())
+            .httpMethod(request.httpMethod())
+            .enabled(request.enabled() != null ? request.enabled() : true)
+            .healthy(request.enabled() != null ? request.enabled() : true)
+            .isExportable(request.isExportable() != null ? request.isExportable() : false)
+            .createdAt(Instant.now())
+            .updatedAt(Instant.now())
+            .build();
+
+    // Add parameters
+    if (request.parameters() != null) {
+        Set<ToolParameter> parameters = request.parameters().stream()
+                .map(p -> ToolParameter.builder()
+                        .apiTool(apiTool)
+                        .name(p.name())
+                        .code(UUID.randomUUID().toString())
+                        .type(p.type())
+                        .description(p.description())
+                        .required(p.required())
+                        .defaultValue(p.defaultValue())
+                        .enabled(true)
+                        .createdAt(Instant.now())
+                        .updatedAt(Instant.now())
+                        .build())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        apiTool.setParameters(parameters);
+    }
+
+    ApiTool savedTool = apiToolRepository.save(apiTool);
+
+    // Refresh cache immediately
+    toolCacheManager.refreshCache();
+
+    return ApiToolResponse.from(savedTool);
+}
+```
+
+Key steps:
+1. **UUID Generation**: Tools get unique codes automatically
+2. **Duplicate Prevention**: Rejects tools with existing codes
+3. **Provider Linking**: Associates tool with authentication provider
+4. **Parameter Creation**: Converts DTOs to JPA entities
+5. **Cache Refresh**: Makes the tool immediately discoverable
+
+## Real-World Example: GitHub Issue Creation
+
+Here's how a complete tool definition looks in practice:
+
+**Provider:**
+```json
+{
+  "name": "GitHub REST API",
+  "code": "github",
+  "baseUrl": "https://api.github.com",
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "apiKeyValue": "ghp_abc123...",
+  "customHeaders": {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28"
+  }
+}
+```
+
+**Tool:**
+```json
+{
+  "name": "Crear Issue Github",
+  "code": "github-create-issue",
+  "description": "Creates a new issue in a GitHub repository.",
+  "endpointPath": "/repos/{owner}/{repo}/issues",
+  "httpMethod": "POST",
+  "enabled": true,
+  "parameters": [
+    {
+      "name": "owner",
+      "type": "STRING",
+      "description": "Repository owner (user or organization)",
+      "required": true
+    },
+    {
+      "name": "repo",
+      "type": "STRING",
+      "description": "Repository name",
+      "required": true
+    },
+    {
+      "name": "title",
+      "type": "STRING",
+      "description": "Issue title",
+      "required": true
+    },
+    {
+      "name": "body",
+      "type": "STRING",
+      "description": "Issue description (supports Markdown)",
+      "required": false
+    }
+  ]
+}
+```
+
+When an AI agent calls this tool:
+1. `ToolCacheManager` retrieves the cached tool by code
+2. `DynamicTokenManager` checks if authentication is needed (static in this case)
+3. `ToolExecutionService` interpolates `{owner}` and `{repo}` in the endpoint path
+4. The request is sent to `https://api.github.com/repos/facebook/react/issues`
+5. Response is returned to the agent in MCP format
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MCP Protocol" icon="network-wired" href="/concepts/mcp-protocol">
+    Understand how HandsAI implements MCP
+  </Card>
+  <Card title="Authentication" icon="lock" href="/concepts/authentication">
+    Learn about supported authentication types
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/mcp/overview">
+    Explore all API endpoints
+  </Card>
+  <Card title="Import Tools" icon="file-import" href="/guides/importing-exporting">
+    Import pre-configured use cases
+  </Card>
+</CardGroup>

@@ -1,0 +1,232 @@
+---
+title: 'Email Integration'
+description: 'Send transactional emails using Resend API'
+icon: 'envelope'
+---
+
+# Email Integration with Resend
+
+Send transactional emails directly from your LLM using [Resend](https://resend.com/) - a modern email API built for developers.
+
+## What It Does
+
+The Resend integration allows your LLM to:
+- Send transactional emails
+- Support HTML content
+- Use verified domains
+- Track delivery status
+
+## Setup
+
+### 1. Get Your Resend API Key
+
+1. Sign up at [Resend.com](https://resend.com/)
+2. Verify your sending domain (or use the test domain `onboarding@resend.dev`)
+3. Create an API key in the dashboard
+
+### 2. Import the Configuration
+
+The Resend configuration is included in `NUEVOS_HITOS.json`:
+
+```json
+{
+  "name": "Resend API",
+  "code": "resend",
+  "baseUrl": "https://api.resend.com",
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "apiKeyValue": "<YOUR_API_KEY>",
+  "customHeaders": {
+    "Content-Type": "application/json",
+    "User-Agent": "HandsAI/1.0"
+  },
+  "tools": [
+    {
+      "name": "Enviar Email (Resend)",
+      "code": "resend-send-email",
+      "description": "Envía un correo electrónico usando la API de Resend.",
+      "endpointPath": "/emails",
+      "httpMethod": "POST",
+      "enabled": true,
+      "isExportable": true,
+      "parameters": [
+        {
+          "name": "from",
+          "type": "STRING",
+          "description": "Dirección de envío (ej. Acme <onboarding@resend.dev>). Debe ser un dominio verificado.",
+          "required": true
+        },
+        {
+          "name": "to",
+          "type": "STRING",
+          "description": "Dirección del destinatario.",
+          "required": true
+        },
+        {
+          "name": "subject",
+          "type": "STRING",
+          "description": "Asunto del correo electrónico.",
+          "required": true
+        },
+        {
+          "name": "html",
+          "type": "STRING",
+          "description": "Cuerpo del correo en formato HTML.",
+          "required": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+Import via API:
+
+```bash
+curl -X POST http://localhost:8080/api/import/providers \
+  -H "Content-Type: application/json" \
+  -d @NUEVOS_HITOS.json
+```
+
+<Warning>
+After importing, update the `apiKeyValue` with your actual Resend API key.
+</Warning>
+
+## Example Tool Call
+
+**User request:**
+> "Send a welcome email to john@example.com"
+
+**LLM tool call:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "Enviar Email (Resend)",
+    "arguments": {
+      "from": "Acme <onboarding@resend.dev>",
+      "to": "john@example.com",
+      "subject": "Welcome to Acme!",
+      "html": "<h1>Welcome!</h1><p>Thanks for joining us.</p>"
+    }
+  },
+  "id": "msg_789"
+}
+```
+
+**HandsAI executes:**
+```
+POST https://api.resend.com/emails
+Authorization: Bearer YOUR_API_KEY
+Content-Type: application/json
+
+{
+  "from": "Acme <onboarding@resend.dev>",
+  "to": "john@example.com",
+  "subject": "Welcome to Acme!",
+  "html": "<h1>Welcome!</h1><p>Thanks for joining us.</p>"
+}
+```
+
+## Real Response Format
+
+Resend returns the email ID for tracking:
+
+```json
+{
+  "id": "re_123456789",
+  "from": "Acme <onboarding@resend.dev>",
+  "to": "john@example.com",
+  "created_at": "2026-03-03T15:30:00.000Z"
+}
+```
+
+## Real-World Example
+
+From the HandsAI documentation:
+
+![HandsAI dispatching email successfully with Resend in real-time](https://github.com/Vrivaans/HandsAI/raw/main/docs/assets/handsai-resend-works.png)
+
+## Advanced Features
+
+### HTML Templates
+
+You can use rich HTML content:
+
+```html
+<html>
+  <head>
+    <style>
+      body { font-family: Arial, sans-serif; }
+      .header { background: #4F46E5; color: white; padding: 20px; }
+      .content { padding: 20px; }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>Welcome to Our Platform</h1>
+    </div>
+    <div class="content">
+      <p>We're excited to have you on board!</p>
+    </div>
+  </body>
+</html>
+```
+
+### Multiple Recipients
+
+To send to multiple recipients, you can extend the parameter to accept comma-separated values or use ARRAY type.
+
+### Verified Domains
+
+<Steps>
+  <Step title="Add Your Domain">
+    Go to the Resend dashboard and add your domain
+  </Step>
+  
+  <Step title="Add DNS Records">
+    Add the provided DNS records to your domain registrar
+  </Step>
+  
+  <Step title="Verify">
+    Wait for verification (usually a few minutes)
+  </Step>
+  
+  <Step title="Use Your Domain">
+    Use `name@yourdomain.com` as the `from` address
+  </Step>
+</Steps>
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Welcome Emails" icon="hand-wave">
+    Onboarding new users automatically
+  </Card>
+  
+  <Card title="Notifications" icon="bell">
+    Send alerts and status updates
+  </Card>
+  
+  <Card title="Receipts" icon="receipt">
+    Transaction confirmations
+  </Card>
+  
+  <Card title="Reports" icon="chart-line">
+    Automated report delivery
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Search" icon="magnifying-glass" href="/use-cases/search">
+    AI-powered search with Tavily
+  </Card>
+  
+  <Card title="GitHub" icon="github" href="/use-cases/github">
+    Automate GitHub workflows
+  </Card>
+</CardGroup>

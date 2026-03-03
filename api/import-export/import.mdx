@@ -1,0 +1,342 @@
+---
+title: 'Import Providers'
+api: 'POST /api/import/providers'
+description: 'Import provider configurations with upsert behavior'
+---
+
+## Endpoint
+
+```
+POST /api/import/providers
+```
+
+Imports provider configurations with their associated tools and parameters. Uses **upsert logic** to create new providers or update existing ones based on the `code` field.
+
+## Request Body
+
+<ParamField body="root" type="array" required>
+  Array of provider objects to import
+  
+  <Expandable title="Provider Object">
+    <ParamField body="name" type="string" required>
+      Human-readable name of the API provider
+    </ParamField>
+    
+    <ParamField body="code" type="string" required>
+      Unique identifier for the provider. If a provider with this code exists, it will be updated; otherwise, a new provider is created.
+    </ParamField>
+    
+    <ParamField body="baseUrl" type="string" required>
+      Base URL for all API requests to this provider
+    </ParamField>
+    
+    <ParamField body="authenticationType" type="enum" required>
+      Authentication method: `API_KEY`, `BEARER_TOKEN`, `BASIC_AUTH`, `NONE`
+    </ParamField>
+    
+    <ParamField body="apiKeyLocation" type="enum">
+      Where to send the API key: `HEADER`, `QUERY_PARAM`, `IN_BODY`
+    </ParamField>
+    
+    <ParamField body="apiKeyName" type="string">
+      Name of the authentication header/parameter (e.g., "Authorization", "x-api-key")
+    </ParamField>
+    
+    <ParamField body="apiKeyValue" type="string">
+      The actual API key value. Values equal to `<YOUR_API_KEY>` or empty strings are **skipped** and will not update existing keys.
+    </ParamField>
+    
+    <ParamField body="isDynamicAuth" type="boolean" default="false">
+      Whether this provider uses dynamic authentication (token refresh)
+    </ParamField>
+    
+    <ParamField body="dynamicAuthUrl" type="string">
+      URL endpoint for obtaining fresh authentication tokens
+    </ParamField>
+    
+    <ParamField body="dynamicAuthMethod" type="enum" default="POST">
+      HTTP method for dynamic auth: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`
+    </ParamField>
+    
+    <ParamField body="dynamicAuthPayloadType" type="enum" default="JSON">
+      Format of auth payload: `JSON`, `FORM_DATA`, `XML`
+    </ParamField>
+    
+    <ParamField body="dynamicAuthPayloadLocation" type="enum" default="BODY">
+      Where to send auth payload: `BODY`, `QUERY_PARAMS`, `HEADERS`
+    </ParamField>
+    
+    <ParamField body="dynamicAuthPayload" type="string">
+      Template for authentication request payload. Use placeholders like `{"identifier":"user","password":"pass"}`
+    </ParamField>
+    
+    <ParamField body="dynamicAuthTokenExtractionPath" type="string">
+      JSONPath expression to extract the token from auth response (e.g., "accessJwt", "data.token")
+    </ParamField>
+    
+    <ParamField body="dynamicAuthInvalidationKeywords" type="string" default="invalid_token,token_expired,unauthorized,expired_token">
+      Comma-separated keywords that trigger token refresh
+    </ParamField>
+    
+    <ParamField body="customHeaders" type="object">
+      Key-value pairs of custom HTTP headers to include in all requests
+    </ParamField>
+    
+    <ParamField body="tools" type="array" required>
+      Array of tool configurations for this provider
+      
+      <Expandable title="Tool Object">
+        <ParamField body="name" type="string" required>
+          Human-readable tool name
+        </ParamField>
+        
+        <ParamField body="code" type="string" required>
+          Unique identifier for the tool. Used for upsert logic.
+        </ParamField>
+        
+        <ParamField body="description" type="string" required>
+          Description of what the tool does (shown to AI agents via MCP)
+        </ParamField>
+        
+        <ParamField body="endpointPath" type="string" required>
+          API endpoint path (appended to provider baseUrl). Supports path parameters like `/repos/{owner}/{repo}`
+        </ParamField>
+        
+        <ParamField body="httpMethod" type="enum" required>
+          HTTP method: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`
+        </ParamField>
+        
+        <ParamField body="parameters" type="array">
+          Array of parameter definitions for this tool
+          
+          <Expandable title="Parameter Object">
+            <ParamField body="name" type="string" required>
+              Parameter name
+            </ParamField>
+            
+            <ParamField body="type" type="enum" required>
+              Parameter type: `STRING`, `NUMBER`, `BOOLEAN`, `OBJECT`, `ARRAY`
+            </ParamField>
+            
+            <ParamField body="description" type="string">
+              Human-readable description of the parameter's purpose
+            </ParamField>
+            
+            <ParamField body="required" type="boolean" default="false">
+              Whether this parameter is mandatory
+            </ParamField>
+            
+            <ParamField body="defaultValue" type="string">
+              Default value if not provided by the user
+            </ParamField>
+          </Expandable>
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Upsert Behavior
+
+The import endpoint uses **code-based upsert logic**:
+
+### Providers
+- If `code` matches an existing provider → **Update** the existing provider
+- If `code` does not exist → **Create** a new provider
+- If `code` is missing or blank → Generate a new UUID and create a provider
+
+### Tools
+- Tools follow the same code-based upsert pattern
+- Existing tool parameters are **cleared and replaced** with the imported parameters
+- This ensures clean updates without orphaned parameters
+
+### Parameters
+- Parameters are **always recreated** with fresh UUIDs to avoid database conflicts
+- Old parameters are removed when updating a tool
+
+## API Key Handling
+
+API key values are processed with special logic for security:
+
+- Values equal to `<YOUR_API_KEY>` → **Skipped** (preserves existing key)
+- Empty or blank values → **Skipped** (preserves existing key)
+- Valid API key values → **Encrypted and stored**
+
+<Tip>
+This allows you to import exported configurations without exposing or overwriting production API keys.
+</Tip>
+
+## Response
+
+Returns a success message when the import completes.
+
+<ResponseField name="message" type="string">
+  Confirmation message: `"Import successful"`
+</ResponseField>
+
+## Error Handling
+
+The import process validates all data before persisting. Common errors include:
+
+- **Missing required fields**: Provider name, code, baseUrl, authenticationType
+- **Invalid enum values**: Unsupported HTTP methods or authentication types
+- **Malformed JSON**: Invalid customHeaders structure
+- **Database constraints**: Duplicate codes (should not occur with upsert logic)
+
+## Cache Refresh
+
+After a successful import, the **tool cache is automatically refreshed**. This ensures that:
+
+- MCP clients immediately see the new/updated tools
+- No server restart is required
+- Changes are reflected in the next `tools/list` call
+
+## Example Request
+
+```bash
+curl -X POST http://localhost:8080/api/import/providers \
+  -H "Content-Type: application/json" \
+  -d @providers.json
+```
+
+### Full Example Payload
+
+```json
+[
+  {
+    "name": "Tavily AI Search",
+    "code": "tavily",
+    "baseUrl": "https://api.tavily.com",
+    "authenticationType": "API_KEY",
+    "apiKeyLocation": "IN_BODY",
+    "apiKeyName": "api_key",
+    "apiKeyValue": "<YOUR_API_KEY>",
+    "isDynamicAuth": false,
+    "customHeaders": {
+      "Content-Type": "application/json"
+    },
+    "tools": [
+      {
+        "name": "Búsqueda Tavily",
+        "code": "tavily-search",
+        "description": "Realiza una búsqueda impulsada por IA optimizada para obtener respuestas y fuentes precisas.",
+        "endpointPath": "/search",
+        "httpMethod": "POST",
+        "parameters": [
+          {
+            "name": "api_key",
+            "type": "STRING",
+            "description": "Clave API de Tavily (requerida en el cuerpo de la petición).",
+            "required": true,
+            "defaultValue": ""
+          },
+          {
+            "name": "query",
+            "type": "STRING",
+            "description": "La consulta de búsqueda a procesar.",
+            "required": true,
+            "defaultValue": ""
+          },
+          {
+            "name": "search_depth",
+            "type": "STRING",
+            "description": "Profundidad de búsqueda ('basic' o 'advanced').",
+            "required": false,
+            "defaultValue": "basic"
+          },
+          {
+            "name": "include_images",
+            "type": "BOOLEAN",
+            "description": "Si se deben incluir imágenes en los resultados (true/false).",
+            "required": false,
+            "defaultValue": ""
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Bluesky API",
+    "code": "bluesky",
+    "baseUrl": "https://bsky.social/xrpc",
+    "authenticationType": "BEARER_TOKEN",
+    "apiKeyLocation": "HEADER",
+    "apiKeyName": "Authorization",
+    "apiKeyValue": "",
+    "isDynamicAuth": true,
+    "dynamicAuthUrl": "https://bsky.social/xrpc/com.atproto.server.createSession",
+    "dynamicAuthMethod": "POST",
+    "dynamicAuthPayloadType": "JSON",
+    "dynamicAuthPayloadLocation": "BODY",
+    "dynamicAuthPayload": "{\"identifier\":\"your_handle.bsky.social\",\"password\":\"your_app_password\"}",
+    "dynamicAuthTokenExtractionPath": "accessJwt",
+    "dynamicAuthInvalidationKeywords": "ExpiredToken,AuthenticationRequired",
+    "customHeaders": {},
+    "tools": [
+      {
+        "name": "Ver Timeline",
+        "code": "bluesky-timeline",
+        "description": "Obtiene las últimas publicaciones del feed de inicio del usuario autenticado en Bluesky.",
+        "endpointPath": "/app.bsky.feed.getTimeline",
+        "httpMethod": "GET",
+        "parameters": [
+          {
+            "name": "limit",
+            "type": "NUMBER",
+            "description": "Cantidad de posts a recuperar (ej. 10)",
+            "required": false,
+            "defaultValue": "10"
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
+## Example Response
+
+```json
+{
+  "message": "Import successful"
+}
+```
+
+## Import from Export
+
+You can directly import the output from the export endpoint:
+
+```bash
+# Step 1: Export from source instance
+curl http://source-server:8080/api/export/providers > export.json
+
+# Step 2: Update API keys in export.json if needed
+# Replace <YOUR_API_KEY> placeholders with real values
+
+# Step 3: Import to target instance
+curl -X POST http://target-server:8080/api/import/providers \
+  -H "Content-Type: application/json" \
+  -d @export.json
+```
+
+<Warning>
+**API Keys Are Not Exported**  
+The export endpoint masks all API keys as `<YOUR_API_KEY>`. You must manually add real API keys to the JSON before importing, or the import will preserve existing keys (or skip if creating new providers).
+</Warning>
+
+## Validation Notes
+
+- All required fields must be present
+- Enum values must match exactly (case-sensitive)
+- `customHeaders` must be a valid JSON object
+- `isDynamicAuth` defaults to `false` if omitted
+- `dynamicAuthInvalidationKeywords` defaults to standard keywords if omitted
+- Parameter types must be valid: `STRING`, `NUMBER`, `BOOLEAN`, `OBJECT`, `ARRAY`
+
+## Side Effects
+
+1. **Database Changes**: Creates or updates provider, tool, and parameter records
+2. **Tool Cache Refresh**: All MCP tool caches are invalidated and rebuilt
+3. **Timestamps**: `createdAt` set for new records, `updatedAt` set for all records
+4. **Encryption**: Valid API keys are encrypted using the configured encryption service
+5. **Exportable Flag**: All imported providers are marked as `exportable = true`

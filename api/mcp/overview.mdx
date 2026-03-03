@@ -1,0 +1,95 @@
+---
+title: MCP API Overview
+description: Model Context Protocol (MCP) API for LLM tool discovery and execution
+---
+
+## Purpose
+
+The MCP API enables Large Language Models (LLMs) to dynamically discover and execute tools registered in HandsAI. This API follows the **JSON-RPC 2.0** protocol standard and serves as the bridge between MCP clients (like Claude Desktop, Cline, or custom agents) and external REST APIs.
+
+## Protocol
+
+HandsAI's MCP implementation adheres to the **JSON-RPC 2.0** specification:
+
+- All responses include `"jsonrpc": "2.0"`
+- Successful responses contain a `result` field
+- Error responses contain an `error` field with `code` and `message`
+- Request IDs are echoed back in responses when provided
+
+## Base Path
+
+All MCP endpoints are served under:
+
+```
+/mcp
+```
+
+## Authentication
+
+Currently, the MCP API endpoints are **publicly accessible** with CORS enabled (`@CrossOrigin(origins = "*")`). 
+
+<Warning>
+In production deployments, you should configure proper authentication and restrict CORS origins in your application properties.
+</Warning>
+
+## Available Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|----------|
+| `/mcp/tools/list` | GET | Discover all available tools |
+| `/mcp/tools/call` | POST | Execute a specific tool |
+
+## Error Codes
+
+HandsAI uses standard JSON-RPC 2.0 error codes:
+
+| Code | Meaning | When it occurs |
+|------|---------|----------------|
+| `-32602` | Invalid params | Missing required parameters or invalid argument types |
+| `-32603` | Internal error | Server-side execution failure, database errors, or unexpected exceptions |
+
+### Error Response Format
+
+All errors follow this structure:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32602,
+    "message": "Invalid params: missing required parameters"
+  },
+  "id": "request-123"
+}
+```
+
+## Implementation Details
+
+### Controller Location
+
+The MCP API is implemented in:
+```
+org.dynamcorp.handsaiv2.controller.MCPController
+```
+
+### Core Services
+
+- **ToolDiscoveryService**: Resolves available tools from the database and cache
+- **ToolExecutionService**: Executes tool calls against registered REST APIs
+
+### JSON-RPC Request/Response Flow
+
+1. **Tool Discovery**: Client requests `/mcp/tools/list` to get all available tools with their input schemas
+2. **Tool Execution**: Client sends a JSON-RPC request to `/mcp/tools/call` with tool name and arguments
+3. **Response Handling**: HandsAI executes the underlying REST API call and returns the result wrapped in JSON-RPC format
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="List Tools" icon="list" href="/api/mcp/tools-list">
+    Discover available tools
+  </Card>
+  <Card title="Execute Tools" icon="play" href="/api/mcp/tools-call">
+    Call a registered tool
+  </Card>
+</CardGroup>

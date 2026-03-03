@@ -1,0 +1,520 @@
+---
+title: Database Schema
+description: Complete database schema documentation for HandsAI
+---
+
+## Overview
+
+HandsAI uses **SQLite** as its embedded database, storing API provider configurations, tool definitions, parameters, and execution logs. The schema is managed by Hibernate using the `update` strategy.
+
+## Database Configuration
+
+### Connection Settings
+
+```properties
+# application.properties
+spring.datasource.url=jdbc:sqlite:handsai.db?journal_mode=WAL&busy_timeout=5000
+spring.datasource.driver-class-name=org.sqlite.JDBC
+```
+
+Key features:
+- **File Location**: `handsai.db` (in application directory)
+- **WAL Mode**: Write-Ahead Logging for improved concurrency
+- **Busy Timeout**: 5 second wait for locked database
+
+### Hibernate Configuration
+
+```properties
+spring.jpa.database-platform=org.hibernate.community.dialect.SQLiteDialect
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=false
+spring.jpa.properties.hibernate.format_sql=true
+```
+
+- **Dialect**: `SQLiteDialect` from Hibernate Community Dialects
+- **DDL Auto**: `update` - automatically evolves schema based on entities
+- **No Sequences**: SQLite doesn't support sequences (`create_sequences=false`)
+
+## Core Entities
+
+### BaseModel (Abstract)
+
+All entities inherit common fields from `BaseModel`:
+
+```java
+@MappedSuperclass
+@Getter
+@Setter
+@SuperBuilder
+@NoArgsConstructor
+@AllArgsConstructor
+public abstract class BaseModel {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @Column(unique = true)
+    private String code;
+    
+    @lombok.Builder.Default
+    private boolean enabled = true;
+    
+    @Column(updatable = false)
+    private Instant createdAt;
+    
+    private Instant updatedAt;
+    
+    @PrePersist
+    protected void onCreate() {
+        createdAt = Instant.now();
+        updatedAt = Instant.now();
+    }
+    
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = Instant.now();
+    }
+}
+```
+
+**Fields:**
+- `id` - Auto-incrementing primary key (IDENTITY strategy)
+- `code` - Unique business identifier (nullable)
+- `enabled` - Soft delete flag (default: `true`)
+- `createdAt` - Creation timestamp (UTC, immutable)
+- `updatedAt` - Last modification timestamp (UTC)
+
+## Entity Relationships
+
+```
+ApiProvider (1) ──────< (N) ApiTool (1) ──────< (N) ToolParameter
+```
+
+### ApiProvider
+
+**Table**: `api_providers`
+
+Stores external API provider configurations including authentication and dynamic auth settings.
+
+```java
+@Entity
+@Table(name = "api_providers")
+public class ApiProvider extends BaseModel {
+    private String name;
+    
+    @Column(nullable = false)
+    private String baseUrl;
+    
+    @Enumerated(EnumType.STRING)
+    private AuthenticationTypeEnum authenticationType;
+    
+    @Enumerated(EnumType.STRING)
+    private ApiKeyLocationEnum apiKeyLocation;
+    
+    private String apiKeyName;
+    private String apiKeyValue; // Encrypted
+    
+    @Column(columnDefinition = "TEXT")
+    private String customHeadersJson;
+    
+    // Dynamic Authentication Fields
+    @Column(columnDefinition = "boolean default false")
+    @lombok.Builder.Default
+    private boolean isDynamicAuth = false;
+    
+    private String dynamicAuthUrl;
+    
+    @Enumerated(EnumType.STRING)
+    private DynamicAuthMethodEnum dynamicAuthMethod;
+    
+    @Column(columnDefinition = "TEXT")
+    private String dynamicAuthPayload;
+    
+    @Enumerated(EnumType.STRING)
+    private DynamicAuthPayloadTypeEnum dynamicAuthPayloadType;
+    
+    @Enumerated(EnumType.STRING)
+    private DynamicAuthPayloadLocationEnum dynamicAuthPayloadLocation;
+    
+    private String dynamicAuthTokenExtractionPath;
+    
+    @Column(columnDefinition = "TEXT")
+    private String dynamicAuthInvalidationKeywords;
+    
+    @OneToMany(mappedBy = "provider", cascade = CascadeType.ALL, orphanRemoval = true)
+    @lombok.Builder.Default
+    private List<ApiTool> tools = new ArrayList<>();
+    
+    @Column(columnDefinition = "boolean default false")
+    @lombok.Builder.Default
+    private boolean isExportable = false;
+}
+```
+
+**Field Descriptions:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | String | Provider display name (e.g., "OpenWeather API") |
+| `baseUrl` | String | Base URL for API (e.g., `https://api.openweathermap.org`) |
+| `authenticationType` | Enum | Authentication method: `NONE`, `API_KEY`, `BEARER_TOKEN`, `BASIC_AUTH`, `DYNAMIC` |
+| `apiKeyLocation` | Enum | Where to send API key: `HEADER`, `QUERY_PARAM` |
+| `apiKeyName` | String | Name of key/header (e.g., `X-API-Key`, `apikey`) |
+| `apiKeyValue` | String | **Encrypted** API key or token (using Jasypt) |
+| `customHeadersJson` | TEXT | JSON object with additional headers: `{"User-Agent": "HandsAI"}` |
+| `isDynamicAuth` | Boolean | Whether to use dynamic authentication (session tokens) |
+| `dynamicAuthUrl` | String | URL to obtain session token |
+| `dynamicAuthMethod` | Enum | HTTP method for auth request: `GET`, `POST` |
+| `dynamicAuthPayload` | TEXT | JSON payload for auth request |
+| `dynamicAuthPayloadType` | Enum | Payload format: `JSON`, `FORM_DATA` |
+| `dynamicAuthPayloadLocation` | Enum | Where to send payload: `BODY`, `QUERY` |
+| `dynamicAuthTokenExtractionPath` | String | JSONPath to extract token (e.g., `$.data.token`) |
+| `dynamicAuthInvalidationKeywords` | TEXT | Keywords indicating token expiration |
+| `isExportable` | Boolean | Whether provider can be exported/shared |
+
+**Relationships:**
+- **One-to-Many** with `ApiTool` - A provider can have multiple tools
+- Cascade: `ALL` - Deleting a provider deletes all its tools
+- Orphan Removal: `true` - Removing a tool from the collection deletes it
+
+### ApiTool
+
+**Table**: `api_tools`
+
+Defines individual API endpoints exposed as MCP tools.
+
+```java
+@Entity
+@Table(name = "api_tools")
+public class ApiTool extends BaseModel {
+    private String name;
+    private String description;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "provider_id", nullable = false)
+    private ApiProvider provider;
+    
+    private String endpointPath;
+    
+    @Enumerated(EnumType.STRING)
+    private HttpMethodEnum httpMethod;
+    
+    private Instant lastHealthCheck;
+    private boolean healthy;
+    
+    @OneToMany(mappedBy = "apiTool", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @lombok.Builder.Default
+    private Set<ToolParameter> parameters = new LinkedHashSet<>();
+    
+    @Column(columnDefinition = "boolean default false")
+    @lombok.Builder.Default
+    private boolean isExportable = false;
+}
+```
+
+**Field Descriptions:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | String | Tool name for MCP (e.g., `weather_get_current`) |
+| `description` | String | Human-readable description for AI agents |
+| `provider_id` | Long | **Foreign Key** to `api_providers.id` |
+| `endpointPath` | String | Relative path (e.g., `/v1/weather/current`) |
+| `httpMethod` | Enum | HTTP method: `GET`, `POST`, `PUT`, `DELETE`, `PATCH` |
+| `lastHealthCheck` | Instant | Timestamp of last health check |
+| `healthy` | Boolean | Whether endpoint is currently accessible |
+| `isExportable` | Boolean | Whether tool can be exported |
+
+**Relationships:**
+- **Many-to-One** with `ApiProvider` - Each tool belongs to one provider
+- **One-to-Many** with `ToolParameter` - A tool can have multiple parameters
+- Cascade: `ALL` - Deleting a tool deletes its parameters
+- Fetch: `LAZY` - Parameters loaded on-demand
+
+### ToolParameter
+
+**Table**: `tool_parameters`
+
+Defines input parameters for API tools.
+
+```java
+@Entity
+@Table(name = "tool_parameters")
+public class ToolParameter extends BaseModel {
+    private String name;
+    
+    @Enumerated(EnumType.STRING)
+    private ParameterType type;
+    
+    private String description;
+    private Boolean required;
+    private String defaultValue;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "api_tool_id")
+    private ApiTool apiTool;
+}
+```
+
+**Field Descriptions:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | String | Parameter name (e.g., `city`, `units`) |
+| `type` | Enum | Data type: `STRING`, `NUMBER`, `INTEGER`, `BOOLEAN`, `OBJECT`, `ARRAY` |
+| `description` | String | Description for AI agents (e.g., "City name or ZIP code") |
+| `required` | Boolean | Whether parameter is mandatory |
+| `defaultValue` | String | Default value if not provided |
+| `api_tool_id` | Long | **Foreign Key** to `api_tools.id` |
+
+**Relationships:**
+- **Many-to-One** with `ApiTool` - Each parameter belongs to one tool
+- Fetch: `LAZY` - Tool loaded on-demand
+
+## Enumerations
+
+### AuthenticationTypeEnum
+
+```java
+public enum AuthenticationTypeEnum {
+    NONE,          // No authentication
+    API_KEY,       // API key in header or query
+    BEARER_TOKEN,  // Bearer token in Authorization header
+    BASIC_AUTH,    // HTTP Basic authentication
+    DYNAMIC        // Dynamic session-based auth
+}
+```
+
+### ApiKeyLocationEnum
+
+```java
+public enum ApiKeyLocationEnum {
+    HEADER,       // Send in HTTP header
+    QUERY_PARAM   // Send as query parameter
+}
+```
+
+### HttpMethodEnum
+
+```java
+public enum HttpMethodEnum {
+    GET,
+    POST,
+    PUT,
+    DELETE,
+    PATCH
+}
+```
+
+### ParameterType
+
+```java
+public enum ParameterType {
+    STRING,
+    NUMBER,
+    INTEGER,
+    BOOLEAN,
+    OBJECT,
+    ARRAY
+}
+```
+
+## Schema Migration
+
+### Hibernate Update Strategy
+
+HandsAI uses Hibernate's `update` strategy for schema evolution:
+
+```properties
+spring.jpa.hibernate.ddl-auto=update
+```
+
+**How it works:**
+1. On startup, Hibernate compares entity definitions with existing schema
+2. Missing tables/columns are automatically created
+3. Existing columns are **not** modified or dropped
+4. Safe for iterative development
+
+<Warning>
+The `update` strategy does not handle:
+- Column renames (will create new column, leave old one)
+- Column type changes (may cause errors)
+- Dropping unused columns
+
+For production deployments, consider migration tools like Flyway or Liquibase.
+</Warning>
+
+### Manual Schema Changes
+
+For complex migrations, use SQLite CLI:
+
+```bash
+# Open database
+sqlite3 handsai.db
+
+# View schema
+.schema api_providers
+
+# Add column manually
+ALTER TABLE api_providers ADD COLUMN new_field TEXT;
+
+# Exit
+.quit
+```
+
+## SQLite Specifics
+
+### WAL Mode (Write-Ahead Logging)
+
+Enabled for better concurrency:
+
+```
+jdbc:sqlite:handsai.db?journal_mode=WAL
+```
+
+Benefits:
+- Readers don't block writers
+- Writers don't block readers
+- Better crash recovery
+
+Side effects:
+- Creates `handsai.db-wal` and `handsai.db-shm` files
+- These are temporary and deleted on clean shutdown
+
+### Batch Processing
+
+SQLite performs best with batched writes:
+
+```java
+@Transactional
+public void importTools(List<ApiTool> tools) {
+    // Batched within single transaction
+    tools.forEach(tool -> apiToolRepository.save(tool));
+}
+```
+
+### Error Handling
+
+Handle `SQLITE_BUSY` errors gracefully:
+
+```java
+try {
+    repository.save(entity);
+} catch (DataAccessException e) {
+    if (e.getMessage().contains("SQLITE_BUSY")) {
+        log.warn("Database locked, retrying...");
+        Thread.sleep(100);
+        repository.save(entity); // Retry
+    }
+}
+```
+
+The `busy_timeout=5000` setting handles most lock contention automatically.
+
+## Query Examples
+
+### Find All Enabled Providers
+
+```java
+public interface ApiProviderRepository extends JpaRepository<ApiProvider, Long> {
+    List<ApiProvider> findByEnabledTrue();
+}
+```
+
+Generated SQL:
+```sql
+SELECT * FROM api_providers WHERE enabled = true;
+```
+
+### Find Tools by Provider Code
+
+```java
+public interface ApiToolRepository extends JpaRepository<ApiTool, Long> {
+    List<ApiTool> findByProviderCodeAndEnabledTrue(String providerCode);
+}
+```
+
+Generated SQL:
+```sql
+SELECT t.* FROM api_tools t
+JOIN api_providers p ON t.provider_id = p.id
+WHERE p.code = ? AND t.enabled = true;
+```
+
+### Load Tool with Parameters
+
+```java
+@Query("SELECT t FROM ApiTool t LEFT JOIN FETCH t.parameters WHERE t.id = :id")
+Optional<ApiTool> findByIdWithParameters(@Param("id") Long id);
+```
+
+Generated SQL:
+```sql
+SELECT t.*, p.* FROM api_tools t
+LEFT JOIN tool_parameters p ON p.api_tool_id = t.id
+WHERE t.id = ?;
+```
+
+## Data Integrity
+
+### Foreign Key Constraints
+
+SQLite foreign keys must be explicitly enabled:
+
+```sql
+PRAGMA foreign_keys = ON;
+```
+
+Hibernate handles this automatically. Constraints:
+- `api_tools.provider_id` → `api_providers.id`
+- `tool_parameters.api_tool_id` → `api_tools.id`
+
+### Cascade Behavior
+
+```java
+// Deleting provider deletes all tools and parameters
+ApiProvider provider = providerRepository.findById(1L).orElseThrow();
+providerRepository.delete(provider);
+// Cascades to api_tools → tool_parameters
+```
+
+### Unique Constraints
+
+From `BaseModel`:
+```java
+@Column(unique = true)
+private String code;
+```
+
+Prevents duplicate business identifiers.
+
+## Backup and Recovery
+
+### Backup Database
+
+```bash
+# Copy database file
+cp handsai.db handsai.db.backup
+
+# Or use SQLite backup command
+sqlite3 handsai.db ".backup handsai.db.backup"
+```
+
+### Restore from Backup
+
+```bash
+# Stop application first!
+cp handsai.db.backup handsai.db
+```
+
+### Export to SQL
+
+```bash
+sqlite3 handsai.db .dump > handsai_schema.sql
+```
+
+## Next Steps
+
+- [Contributing Guide](/dev/contributing) - Learn DTO separation patterns
+- [Tech Stack](/dev/tech-stack) - Understand Spring Data JPA
+- [GraalVM Compatibility](/dev/graalvm-compatibility) - Native image considerations

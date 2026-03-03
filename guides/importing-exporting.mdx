@@ -1,0 +1,441 @@
+---
+title: Importing and Exporting Tools
+description: Batch operations for backing up, migrating, and sharing HandsAI tool configurations
+---
+
+HandsAI provides a robust import/export system for managing tool configurations as JSON. This enables version control, environment migration, and sharing curated tool collections.
+
+## Export Format
+
+The export format mirrors the database structure with security masking applied:
+
+```json
+[
+  {
+    "name": "Resend API",
+    "code": "resend",
+    "baseUrl": "https://api.resend.com",
+    "authenticationType": "BEARER_TOKEN",
+    "apiKeyLocation": "HEADER",
+    "apiKeyName": "Authorization",
+    "apiKeyValue": "<YOUR_API_KEY>",
+    "customHeaders": {
+      "Content-Type": "application/json",
+      "User-Agent": "HandsAI/1.0"
+    },
+    "tools": [
+      {
+        "name": "Enviar Email (Resend)",
+        "code": "resend-send-email",
+        "description": "Envía un correo electrónico usando la API de Resend.",
+        "endpointPath": "/emails",
+        "httpMethod": "POST",
+        "parameters": [
+          {
+            "name": "from",
+            "type": "STRING",
+            "description": "Dirección de envío (ej. Acme <onboarding@resend.dev>)",
+            "required": true,
+            "defaultValue": ""
+          },
+          {
+            "name": "to",
+            "type": "STRING",
+            "description": "Dirección del destinatario.",
+            "required": true,
+            "defaultValue": ""
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
+**Source:** `ExportService.java:46-79` and `NUEVOS_HITOS.json:2-54`
+
+## Exporting Tools
+
+<Tabs>
+  <Tab title="Export All">
+    ### Export All Exportable Providers
+
+    Export all providers marked with `isExportable: true`:
+
+    ```bash
+    curl http://localhost:8080/api/export/providers > handsai_backup.json
+    ```
+
+    **Response Headers:**
+    ```
+    Content-Type: application/json
+    Content-Disposition: attachment; filename=handsai_tools_export.json
+    ```
+
+    **Source:** `ExportController.java:25-38`
+
+    ### What Gets Exported?
+
+    Only providers where `isExportable = true` are included. This is controlled at both provider and tool levels.
+
+    **Source:** `ExportService.java:34-38`
+  </Tab>
+
+  <Tab title="Export Specific Providers">
+    ### Export by Provider IDs
+
+    Export only specific providers:
+
+    ```bash
+    curl "http://localhost:8080/api/export/providers?ids=1,3,5" > selected_tools.json
+    ```
+
+    This exports providers with IDs 1, 3, and 5 (if they're marked exportable).
+
+    **Source:** `ExportController.java:26`
+  </Tab>
+</Tabs>
+
+## Security: API Key Masking
+
+HandsAI automatically masks sensitive credentials during export:
+
+```json
+{
+  "apiKeyValue": "<YOUR_API_KEY>"
+}
+```
+
+This placeholder prevents accidental credential leaks when sharing configurations.
+
+**Source:** `ExportService.java:26` and `ImportService.java:35`
+
+<Warning>
+  **Never commit real API keys to version control!**
+  
+  Always verify exported JSON contains `<YOUR_API_KEY>` before sharing.
+</Warning>
+
+## Importing Tools
+
+### Import Endpoint
+
+```bash
+curl -X POST http://localhost:8080/api/import/providers \
+  -H "Content-Type: application/json" \
+  -d @handsai_backup.json
+```
+
+**Response:**
+```json
+{
+  "message": "Import successful"
+}
+```
+
+**Source:** `ImportController.java:24-30`
+
+### Upsert Behavior
+
+Imports use **upsert logic** based on the `code` field:
+
+- **If `code` exists:** Updates the existing provider/tool
+- **If `code` is new:** Creates a new provider/tool
+- **If `code` is blank:** Generates a new UUID
+
+**Source:** `ImportService.java:56-68` and `ImportService.java:114-126`
+
+<Tabs>
+  <Tab title="Create New">
+    ### Creating New Providers
+
+    When importing a provider that doesn't exist:
+
+    ```json
+    {
+      "code": "new-api-service",
+      "name": "New API Service",
+      "baseUrl": "https://api.newservice.com",
+      "apiKeyValue": "<YOUR_API_KEY>"
+    }
+    ```
+
+    HandsAI will:
+    1. Check if `code: "new-api-service"` exists
+    2. Not found → Create new provider
+    3. Set `createdAt` to current timestamp
+
+    **Source:** `ImportService.java:59-63`
+  </Tab>
+
+  <Tab title="Update Existing">
+    ### Updating Existing Providers
+
+    When importing a provider with matching `code`:
+
+    ```json
+    {
+      "code": "github",
+      "name": "GitHub REST API v2",
+      "baseUrl": "https://api.github.com"
+    }
+    ```
+
+    HandsAI will:
+    1. Find existing provider with `code: "github"`
+    2. Update all fields with new values
+    3. Preserve `createdAt`, update `updatedAt`
+
+    **Source:** `ImportService.java:64-68`
+  </Tab>
+</Tabs>
+
+## API Key Placeholder Handling
+
+When importing, HandsAI skips updating API keys if they contain the placeholder:
+
+```java
+if (req.apiKeyValue() != null && 
+    !req.apiKeyValue().isBlank() && 
+    !req.apiKeyValue().equals("<YOUR_API_KEY>")) {
+    provider.setApiKeyValue(encryptionService.encrypt(req.apiKeyValue()));
+}
+```
+
+**This means:**
+- Real API keys are encrypted and stored
+- Placeholder `<YOUR_API_KEY>` is ignored
+- Existing API keys are preserved during updates
+
+**Source:** `ImportService.java:93-95`
+
+## Complete Working Example
+
+### Real-World Use Case: Social Media Management
+
+Here's a complete example from the HandsAI source code - an Ayrshare integration for posting to multiple social platforms:
+
+```json
+[
+  {
+    "name": "Ayrshare Social Media API",
+    "code": "ayrshare",
+    "baseUrl": "https://app.ayrshare.com/api",
+    "authenticationType": "API_KEY",
+    "apiKeyLocation": "HEADER",
+    "apiKeyName": "Authorization",
+    "apiKeyValue": "<YOUR_API_KEY>",
+    "customHeaders": {
+      "Content-Type": "application/json"
+    },
+    "tools": [
+      {
+        "name": "Post to Social Media",
+        "code": "ayrshare-post",
+        "description": "Publishes content to multiple social media platforms",
+        "endpointPath": "/post",
+        "httpMethod": "POST",
+        "parameters": [
+          {
+            "name": "post",
+            "type": "STRING",
+            "description": "The content to publish",
+            "required": true,
+            "defaultValue": ""
+          },
+          {
+            "name": "platforms",
+            "type": "ARRAY",
+            "description": "Target platforms: linkedin, twitter, facebook, instagram",
+            "required": true,
+            "defaultValue": "[\"linkedin\"]"
+          },
+          {
+            "name": "mediaUrls",
+            "type": "ARRAY",
+            "description": "Array of image/video URLs to attach",
+            "required": false,
+            "defaultValue": ""
+          },
+          {
+            "name": "scheduleDate",
+            "type": "STRING",
+            "description": "ISO 8601 date for scheduling (optional)",
+            "required": false,
+            "defaultValue": ""
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
+### Importing This Configuration
+
+1. **Save to file:**
+   ```bash
+   curl https://raw.githubusercontent.com/your-repo/ayrshare.json > ayrshare.json
+   ```
+
+2. **Update API key:**
+   ```bash
+   # Replace the placeholder with your real key
+   sed -i 's/<YOUR_API_KEY>/Bearer AYRSHARE_KEY_abc123/g' ayrshare.json
+   ```
+
+3. **Import:**
+   ```bash
+   curl -X POST http://localhost:8080/api/import/providers \
+     -H "Content-Type: application/json" \
+     -d @ayrshare.json
+   ```
+
+4. **Verify:**
+   ```bash
+   curl http://localhost:8080/admin/providers | jq '.[] | select(.code=="ayrshare")'
+   ```
+
+## Advanced: Dynamic Authentication
+
+Some APIs require fetching tokens via OAuth or login endpoints. Here's a Bluesky example:
+
+```json
+{
+  "name": "Bluesky API",
+  "code": "bluesky",
+  "baseUrl": "https://bsky.social/xrpc",
+  "authenticationType": "BEARER_TOKEN",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "Authorization",
+  "apiKeyValue": "",
+  "isDynamicAuth": true,
+  "dynamicAuthUrl": "https://bsky.social/xrpc/com.atproto.server.createSession",
+  "dynamicAuthMethod": "POST",
+  "dynamicAuthPayloadType": "JSON",
+  "dynamicAuthPayloadLocation": "BODY",
+  "dynamicAuthPayload": "{\"identifier\":\"your_handle.bsky.social\",\"password\":\"your_app_password\"}",
+  "dynamicAuthTokenExtractionPath": "accessJwt",
+  "dynamicAuthInvalidationKeywords": "ExpiredToken,AuthenticationRequired",
+  "tools": [/*...*/]
+}
+```
+
+HandsAI will:
+1. POST credentials to `dynamicAuthUrl`
+2. Extract token from response using JSONPath (`accessJwt`)
+3. Auto-refresh when response contains invalidation keywords
+
+**Source:** `NUEVOS_HITOS.json:197-232` and `DynamicTokenManager.java`
+
+## Migration Workflow
+
+### Development → Production
+
+1. **Export from dev:**
+   ```bash
+   curl http://dev.handsai.local:8080/api/export/providers > prod_migration.json
+   ```
+
+2. **Update API keys for production:**
+   ```bash
+   # Edit prod_migration.json and replace <YOUR_API_KEY> with production credentials
+   vim prod_migration.json
+   ```
+
+3. **Import to production:**
+   ```bash
+   curl -X POST https://prod.handsai.com/api/import/providers \
+     -H "Content-Type: application/json" \
+     -d @prod_migration.json
+   ```
+
+<Info>
+  **Tool Cache Auto-Refresh**
+  
+  After import, the tool cache automatically refreshes. MCP clients will see new tools within seconds.
+  
+  **Source:** `ImportService.java:51`
+</Info>
+
+## Validation and Error Handling
+
+Import errors are logged but don't stop the batch:
+
+```bash
+# Check logs after import
+curl http://localhost:8080/admin/tools/api | jq 'length'
+# Expected: Number should match imported tools count
+```
+
+Common errors:
+- **Missing `code`**: UUID auto-generated
+- **Invalid `httpMethod`**: Must be GET/POST/PUT/DELETE/PATCH
+- **Invalid `type`**: Must be STRING/NUMBER/BOOLEAN/ARRAY/OBJECT
+- **Missing `baseUrl`**: Import fails for that provider
+
+**Source:** `ImportService.java:38-53`
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Version Control Your Exports">
+    Track tool configurations in Git:
+    ```bash
+    mkdir -p config/handsai-tools
+    curl http://localhost:8080/api/export/providers > config/handsai-tools/$(date +%Y%m%d).json
+    git add config/handsai-tools/
+    git commit -m "Snapshot HandsAI tools"
+    ```
+  </Accordion>
+
+  <Accordion title="Use Environment Variables for Secrets">
+    Store API keys outside JSON:
+    ```bash
+    export GITHUB_TOKEN="ghp_abc123"
+    jq --arg token "$GITHUB_TOKEN" '.[0].apiKeyValue = $token' import.json | \
+      curl -X POST http://localhost:8080/api/import/providers -d @-
+    ```
+  </Accordion>
+
+  <Accordion title="Test Imports in Development First">
+    Always validate imports don't break existing tools:
+    ```bash
+    # Backup before import
+    curl http://localhost:8080/api/export/providers > pre_import_backup.json
+    
+    # Import
+    curl -X POST http://localhost:8080/api/import/providers -d @new_tools.json
+    
+    # Test MCP discovery
+    curl http://localhost:8080/api/mcp/tools/list
+    ```
+  </Accordion>
+
+  <Accordion title="Set isExportable Strategically">
+    Mark only stable, production-ready tools as exportable:
+    ```json
+    {
+      "isExportable": true  // Production-ready
+    }
+    ```
+    Experimental tools should be `false` to avoid accidental exports.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Managing Providers" icon="server" href="/guides/managing-providers">
+    Configure authentication and base URLs
+  </Card>
+  <Card title="Parameter Types" icon="sliders" href="/guides/parameter-types">
+    Understanding ARRAY and OBJECT parameters
+  </Card>
+  <Card title="Use Case Examples" icon="book" href="/use-cases/overview">
+    Real-world integration examples
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/import-export/overview">
+    Complete import/export endpoint docs
+  </Card>
+</CardGroup>

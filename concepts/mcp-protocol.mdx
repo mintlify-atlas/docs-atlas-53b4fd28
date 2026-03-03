@@ -1,0 +1,438 @@
+---
+title: 'Model Context Protocol (MCP)'
+description: 'How HandsAI implements MCP for dynamic tool discovery and execution'
+---
+
+## What is MCP?
+
+The **Model Context Protocol (MCP)** is an open protocol that enables AI agents to discover and execute tools dynamically. HandsAI implements MCP as a standardized bridge between AI clients (like Claude Desktop, OpenCode, or custom MCP clients) and any REST API.
+
+Instead of hardcoding tool integrations, MCP allows agents to:
+- Query available tools at runtime
+- Understand tool schemas automatically
+- Execute tools with type-safe parameters
+- Handle errors uniformly
+
+## Why HandsAI Uses MCP
+
+HandsAI acts as a **universal MCP server** that transforms your registered API tools into MCP-compliant endpoints. This means:
+
+1. **No Plugin Development**: Add any REST API without writing custom MCP server code
+2. **Dynamic Discovery**: Tools appear instantly to AI clients when you register them
+3. **Standardized Protocol**: Works with any MCP-compatible client
+4. **Future-Proof**: As MCP evolves, HandsAI remains compatible
+
+The bridge works through `handsai-go-bridge`, which speaks `stdio` to MCP clients and `HTTP REST` to HandsAI's Spring Boot backend.
+
+## JSON-RPC 2.0 Structure
+
+MCP uses **JSON-RPC 2.0** as its transport format. All requests and responses follow this structure:
+
+### Request Format
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "github-create-issue",
+    "arguments": {
+      "owner": "facebook",
+      "repo": "react",
+      "title": "Bug in useEffect",
+      "body": "Found an issue with..."
+    }
+  },
+  "id": "request-123"
+}
+```
+
+### Response Format (Success)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"id\": 42, \"number\": 1234, \"state\": \"open\"}"
+      }
+    ]
+  },
+  "id": "request-123"
+}
+```
+
+### Response Format (Error)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32602,
+    "message": "Invalid params: owner is required"
+  },
+  "id": "request-123"
+}
+```
+
+## Tool Discovery Flow
+
+AI clients discover available tools by calling the MCP endpoint:
+
+```bash
+GET http://localhost:8080/mcp/tools/list
+```
+
+### Discovery Request
+
+The client sends a simple GET request (or JSON-RPC call depending on the transport layer).
+
+### Discovery Response
+
+HandsAI returns all **enabled and healthy** tools from the cache:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "tools": [
+      {
+        "name": "github-create-issue",
+        "description": "Creates a new issue in a GitHub repository.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "owner": {
+              "type": "string",
+              "description": "Repository owner (user or organization)"
+            },
+            "repo": {
+              "type": "string",
+              "description": "Repository name"
+            },
+            "title": {
+              "type": "string",
+              "description": "Issue title"
+            },
+            "body": {
+              "type": "string",
+              "description": "Issue description (supports Markdown)"
+            }
+          },
+          "required": ["owner", "repo", "title"]
+        }
+      }
+    ]
+  }
+}
+```
+
+### Implementation in MCPController
+
+HandsAI's `/mcp/tools/list` endpoint is handled by `MCPController.java`:
+
+```java
+@GetMapping("/mcp/tools/list")
+public McpResponse<McpToolsListResponse> discoverTools() {
+    try {
+        ToolDiscoveryResponse result = toolDiscoveryService.discoverTools();
+        McpToolsListResponse mcpResult = convertToMcpToolsList(result);
+
+        return McpResponse.<McpToolsListResponse>builder()
+                .jsonrpc("2.0")
+                .result(mcpResult)
+                .build();
+    } catch (Exception ex) {
+        return McpResponse.<McpToolsListResponse>builder()
+                .jsonrpc("2.0")
+                .error(McpError.builder()
+                        .code(-32603)
+                        .message("Internal error discovering tools")
+                        .build())
+                .build();
+    }
+}
+```
+
+The controller:
+1. Calls `ToolDiscoveryService` to fetch enabled tools from `ToolCacheManager`
+2. Converts internal `ToolDefinition` objects to MCP-compliant `McpTool` format
+3. Returns a JSON-RPC 2.0 response with the tools list
+
+## Tool Execution Flow
+
+When an AI agent decides to use a tool, it calls:
+
+```bash
+POST http://localhost:8080/mcp/tools/call
+```
+
+### Execution Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "resend-send-email",
+    "arguments": {
+      "from": "Acme <onboarding@resend.dev>",
+      "to": "user@example.com",
+      "subject": "Welcome to Acme",
+      "html": "<h1>Welcome!</h1>"
+    }
+  },
+  "id": "exec-456"
+}
+```
+
+### Execution Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"id\": \"abc123\", \"from\": \"onboarding@resend.dev\", \"to\": [\"user@example.com\"], \"created_at\": \"2024-01-15T10:00:00Z\"}"
+      }
+    ]
+  },
+  "id": "exec-456"
+}
+```
+
+### Implementation in MCPController
+
+```java
+@PostMapping("/mcp/tools/call")
+public McpResponse<McpToolCallResponse> executeApiTool(@RequestBody McpToolCallRequest request) {
+    // Validate request
+    if (request == null || request.params() == null) {
+        return McpResponse.<McpToolCallResponse>builder()
+                .jsonrpc("2.0")
+                .error(McpError.builder()
+                        .code(-32602)
+                        .message("Invalid params: missing required parameters")
+                        .build())
+                .id(request != null ? request.id() : null)
+                .build();
+    }
+
+    try {
+        // Convert MCP request to internal ToolExecuteRequest
+        ToolExecuteRequest toolRequest = new ToolExecuteRequest(
+                request.params().name(),
+                request.params().arguments(),
+                null // sessionId not required in MCP
+        );
+
+        ToolExecuteResponse response = toolExecutionService.executeApiTool(toolRequest);
+        McpToolCallResponse mcpResult = convertToMcpToolCall(response);
+
+        return McpResponse.<McpToolCallResponse>builder()
+                .jsonrpc("2.0")
+                .result(mcpResult)
+                .id(request.id())
+                .build();
+
+    } catch (Exception ex) {
+        return McpResponse.<McpToolCallResponse>builder()
+                .jsonrpc("2.0")
+                .error(McpError.builder()
+                        .code(getErrorCode(ex))
+                        .message(getErrorMessage(ex))
+                        .build())
+                .id(request.id())
+                .build();
+    }
+}
+```
+
+The execution flow:
+1. **Validation**: Ensures the request has required `params` with `name` and `arguments`
+2. **Conversion**: Transforms MCP request format to internal `ToolExecuteRequest`
+3. **Execution**: Delegates to `ToolExecutionService` which:
+   - Looks up the tool in `ToolCacheManager`
+   - Resolves authentication (static or dynamic via `DynamicTokenManager`)
+   - Makes the HTTP request to the target API
+   - Returns the response
+4. **Response Mapping**: Converts internal response to MCP `McpToolCallResponse` format
+
+## Error Codes and Handling
+
+HandsAI follows JSON-RPC 2.0 standard error codes:
+
+<ParamField path="-32700" type="Parse Error">
+  Invalid JSON was received by the server
+</ParamField>
+
+<ParamField path="-32600" type="Invalid Request">
+  The JSON sent is not a valid Request object
+</ParamField>
+
+<ParamField path="-32601" type="Method Not Found">
+  The method does not exist or is not available
+</ParamField>
+
+<ParamField path="-32602" type="Invalid Params">
+  Invalid method parameters (e.g., missing required tool argument)
+</ParamField>
+
+<ParamField path="-32603" type="Internal Error">
+  Internal JSON-RPC error (e.g., tool execution failed, network error)
+</ParamField>
+
+### Error Code Mapping
+
+HandsAI maps Java exceptions to appropriate error codes:
+
+```java
+private int getErrorCode(Throwable ex) {
+    if (ex instanceof IllegalArgumentException) {
+        return -32602; // Invalid params
+    }
+    return -32603; // Internal error
+}
+
+private String getErrorMessage(Throwable ex) {
+    if (ex instanceof IllegalArgumentException) {
+        return "Invalid params: " + ex.getMessage();
+    }
+    return "Internal error: " + ex.getMessage();
+}
+```
+
+### Real Error Examples
+
+**Missing Required Parameter:**
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32602,
+    "message": "Invalid params: Parameter 'owner' is required"
+  },
+  "id": "req-789"
+}
+```
+
+**Tool Not Found:**
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32603,
+    "message": "Internal error: ApiTool not found with code: invalid-tool"
+  },
+  "id": "req-790"
+}
+```
+
+**Authentication Failed:**
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32603,
+    "message": "Internal error: Failed to fetch dynamic auth token: 401 Unauthorized"
+  },
+  "id": "req-791"
+}
+```
+
+## MCP Data Transfer Objects
+
+HandsAI uses Java Records for type-safe MCP message handling:
+
+### McpToolCallRequest
+
+```java
+public record McpToolCallRequest(
+        String jsonrpc,
+        String method,
+        McpToolCallParams params,
+        String id) {
+}
+
+public record McpToolCallParams(
+        String name,
+        Map<String, Object> arguments) {
+}
+```
+
+### McpResponse
+
+```java
+@Builder
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record McpResponse<T>(
+        String jsonrpc,
+        T result,
+        McpError error,
+        String id) {
+}
+```
+
+### McpError
+
+```java
+@Builder
+public record McpError(
+        int code,
+        String message) {
+}
+```
+
+These records ensure compile-time safety and automatic JSON serialization via Jackson.
+
+## Testing MCP Endpoints
+
+You can test MCP endpoints directly with `curl`:
+
+### List Tools
+
+```bash
+curl http://localhost:8080/mcp/tools/list
+```
+
+### Execute Tool
+
+```bash
+curl -X POST http://localhost:8080/mcp/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "github-create-issue",
+      "arguments": {
+        "owner": "facebook",
+        "repo": "react",
+        "title": "Test issue",
+        "body": "This is a test"
+      }
+    },
+    "id": "test-1"
+  }'
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tool Registry" icon="database" href="/concepts/tool-registry">
+    Learn how tools are registered and cached
+  </Card>
+  <Card title="Authentication" icon="lock" href="/concepts/authentication">
+    Understand authentication types and flows
+  </Card>
+  <Card title="Virtual Threads" icon="bolt" href="/concepts/virtual-threads">
+    See how Java 21 virtual threads power HandsAI
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Start using HandsAI with your first tool
+  </Card>
+</CardGroup>

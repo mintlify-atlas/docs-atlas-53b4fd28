@@ -1,0 +1,313 @@
+---
+title: 'GraalVM Native Compilation'
+description: 'Compile HandsAI to a native executable for instant startup and low memory usage'
+icon: 'bolt'
+---
+
+HandsAI supports GraalVM native compilation, allowing you to build a standalone native executable with:
+
+- **Startup time < 1.5 seconds** (vs ~4-5 seconds with JVM)
+- **Lower memory footprint** (~50-100 MB vs ~200-300 MB)
+- **No JVM required** - single binary distribution
+- **Optimal for AI agents** - instant response times
+
+## Benefits of Native Compilation
+
+<CardGroup cols={2}>
+  <Card title="Lightning Fast Startup" icon="bolt">
+    Native images start in under 1.5 seconds, perfect for on-demand AI agent workflows.
+  </Card>
+  
+  <Card title="Low Memory Usage" icon="memory">
+    Reduced memory footprint compared to JVM, ideal for running alongside resource-intensive LLMs.
+  </Card>
+  
+  <Card title="Single Binary" icon="box">
+    No JVM installation needed - distribute a single executable file.
+  </Card>
+  
+  <Card title="Instant Tool Execution" icon="gauge-high">
+    Minimal overhead for MCP clients to start and execute tools.
+  </Card>
+</CardGroup>
+
+## Prerequisites
+
+<Steps>
+  <Step title="Install GraalVM 21">
+    Download and install GraalVM 21 from [graalvm.org](https://www.graalvm.org/downloads/):
+    
+    ```bash
+    # Download GraalVM (example for Linux)
+    wget https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-21.0.2/graalvm-community-jdk-21.0.2_linux-x64_bin.tar.gz
+    
+    # Extract
+    tar -xzf graalvm-community-jdk-21.0.2_linux-x64_bin.tar.gz
+    
+    # Move to /usr/lib/jvm (or your preferred location)
+    sudo mv graalvm-community-openjdk-21.0.2+13.1 /usr/lib/jvm/graalvm-21
+    ```
+  </Step>
+  
+  <Step title="Set JAVA_HOME">
+    Configure your shell to use GraalVM:
+    
+    ```bash
+    export JAVA_HOME=/usr/lib/jvm/graalvm-21
+    export PATH=$JAVA_HOME/bin:$PATH
+    ```
+    
+    Add these lines to `~/.bashrc` or `~/.zshrc` to persist.
+  </Step>
+  
+  <Step title="Verify Installation">
+    Confirm GraalVM and native-image are available:
+    
+    ```bash
+    java -version
+    # Should show GraalVM version
+    
+    native-image --version
+    # Should show native-image version
+    ```
+  </Step>
+</Steps>
+
+## Building the Native Image
+
+<Steps>
+  <Step title="Navigate to Project Directory">
+    ```bash
+    cd handsaiv3
+    ```
+  </Step>
+  
+  <Step title="Run Native Compilation">
+    Use the Maven native profile to compile:
+    
+    ```bash
+    ./mvnw -Pnative native:compile
+    ```
+    
+    <Warning>
+      Native compilation can take 5-10 minutes and requires significant CPU and memory. Ensure you have at least 8GB RAM available.
+    </Warning>
+    
+    The build process will:
+    1. Analyze all reachable code
+    2. Perform ahead-of-time compilation
+    3. Generate reflection and resource metadata
+    4. Create a standalone executable
+  </Step>
+  
+  <Step title="Locate the Binary">
+    The native executable is created at:
+    
+    ```
+    ./target/hands-ai-v2
+    ```
+  </Step>
+  
+  <Step title="Run the Native Image">
+    Execute the native binary:
+    
+    ```bash
+    ./target/hands-ai-v2
+    ```
+    
+    You should see startup complete in under 1.5 seconds:
+    
+    ```
+    Started Handsaiv2Application in 1.234 seconds (process running for 1.456)
+    ```
+  </Step>
+</Steps>
+
+## GraalVM Compatibility Requirements
+
+HandsAI is carefully designed to be GraalVM-compatible. When contributing code, follow these rules:
+
+### Reflection Registration
+
+GraalVM uses a "closed-world assumption" - all classes must be known at compile time. Dynamic reflection requires explicit registration.
+
+HandsAI registers necessary classes in `src/main/java/org/dynamcorp/handsaiv2/config/NativeHintsConfig.java`:
+
+```java NativeHintsConfig.java
+@Configuration
+@ImportRuntimeHints(NativeHintsConfig.HandsAiRuntimeHints.class)
+public class NativeHintsConfig {
+    public static class HandsAiRuntimeHints implements RuntimeHintsRegistrar {
+        @Override
+        public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+            // Jasypt encryption support
+            hints.reflection().registerTypeIfPresent(classLoader,
+                "com.ulisesbocchio.jasyptspringboot.EncryptablePropertySourceConverter",
+                MemberCategory.INVOKE_DECLARED_CONSTRUCTORS, 
+                MemberCategory.INVOKE_DECLARED_METHODS);
+            
+            // SQLite JDBC driver
+            hints.reflection().registerTypeIfPresent(classLoader, 
+                "org.sqlite.JDBC",
+                MemberCategory.INVOKE_DECLARED_CONSTRUCTORS, 
+                MemberCategory.INVOKE_DECLARED_METHODS);
+            
+            // Hibernate SQLite Dialect
+            hints.reflection().registerTypeIfPresent(classLoader, 
+                "org.hibernate.community.dialect.SQLiteDialect",
+                MemberCategory.INVOKE_DECLARED_CONSTRUCTORS, 
+                MemberCategory.INVOKE_DECLARED_METHODS);
+        }
+    }
+}
+```
+
+<Note>
+  If you add features that use reflection, Jackson mixins, or dynamic class loading, you **must** register those classes in `NativeHintsConfig.java`.
+</Note>
+
+### Resource Loading
+
+Dynamic resources (JSON files, templates, etc.) must also be registered:
+
+```java
+// Register resources for native compilation
+hints.resources().registerPattern("templates/*.json");
+hints.resources().registerPattern("config/*.properties");
+```
+
+### Avoid Runtime Classpath Scanning
+
+GraalVM cannot dynamically scan the classpath. Instead:
+
+- ✅ Use explicit `@ComponentScan` with specific packages
+- ✅ Register beans explicitly in `@Configuration` classes
+- ❌ Avoid runtime package scanning or dynamic bean discovery
+
+## Testing Native Compatibility
+
+After making architectural changes, always test native compilation:
+
+```bash
+# Build native image
+./mvnw -Pnative native:compile
+
+# Run native image
+./target/hands-ai-v2
+
+# Test basic functionality
+curl http://localhost:8080/mcp/tools/list
+```
+
+## Distribution
+
+### Create a Distributable Binary
+
+```bash
+# Build
+./mvnw -Pnative native:compile
+
+# Copy binary to distribution directory
+mkdir -p dist
+cp target/hands-ai-v2 dist/
+cp handsai.db dist/ # Include database if needed
+
+# Create archive
+tar -czf handsai-native-linux-x64.tar.gz dist/
+```
+
+### Running on Another Machine
+
+```bash
+# Extract
+tar -xzf handsai-native-linux-x64.tar.gz
+cd dist
+
+# Run (no JVM required)
+./hands-ai-v2
+```
+
+<Warning>
+  Native images are platform-specific. A binary compiled on Linux will not run on macOS or Windows. Build separately for each platform.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="ClassNotFoundException during native compilation">
+    The class is accessed via reflection but not registered. Add it to `NativeHintsConfig.java`:
+    
+    ```java
+    hints.reflection().registerType(
+        YourClass.class,
+        MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+        MemberCategory.INVOKE_DECLARED_METHODS
+    );
+    ```
+  </Accordion>
+  
+  <Accordion title="Resource not found at runtime">
+    Register the resource pattern in `NativeHintsConfig.java`:
+    
+    ```java
+    hints.resources().registerPattern("path/to/resource/*.json");
+    ```
+  </Accordion>
+  
+  <Accordion title="Native compilation fails with out of memory">
+    Increase Maven memory:
+    
+    ```bash
+    export MAVEN_OPTS="-Xmx8g"
+    ./mvnw -Pnative native:compile
+    ```
+  </Accordion>
+  
+  <Accordion title="Slower startup than expected">
+    Ensure you're running the native binary, not the JAR:
+    
+    ```bash
+    # Native (fast)
+    ./target/hands-ai-v2
+    
+    # JAR (slow)
+    java -jar target/hands-ai-v2-0.0.1-SNAPSHOT.jar
+    ```
+  </Accordion>
+  
+  <Accordion title="Jasypt encryption not working in native image">
+    Verify `NativeHintsConfig` includes Jasypt classes:
+    
+    ```java
+    hints.reflection().registerTypeIfPresent(classLoader,
+        "com.ulisesbocchio.jasyptspringboot.EncryptablePropertySourceConverter",
+        MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+        MemberCategory.INVOKE_DECLARED_METHODS);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance Comparison
+
+| Metric | JVM Mode | Native Image |
+|--------|----------|-------------|
+| Startup Time | ~4-5 seconds | < 1.5 seconds |
+| Memory Usage | ~200-300 MB | ~50-100 MB |
+| Build Time | ~30 seconds | ~5-10 minutes |
+| Binary Size | ~60 MB (JAR) | ~100 MB (native) |
+| Distribution | Requires JVM | Standalone |
+
+<Tip>
+  For development, use JVM mode for faster builds. For production and AI agent deployments, use native compilation for optimal performance.
+</Tip>
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/setup/configuration">
+    Optimize settings for production deployment
+  </Card>
+  <Card title="Bridge Setup" icon="bridge" href="/setup/bridge-setup">
+    Connect the native binary to MCP clients
+  </Card>
+</CardGroup>

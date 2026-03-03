@@ -1,0 +1,243 @@
+---
+title: 'Search Integration'
+description: 'AI-powered search with Tavily for precise answers and sources'
+icon: 'magnifying-glass'
+---
+
+# Search Integration with Tavily
+
+Power your LLM with AI-driven search capabilities using [Tavily](https://tavily.com/) - a search API optimized for AI agents and LLMs.
+
+## What It Does
+
+The Tavily integration provides:
+- **AI-optimized search** - Results tailored for LLM consumption
+- **Precise answers** - Direct answers extracted from sources
+- **Source citations** - Full URLs and snippets for verification
+- **Image search** - Optional image results
+- **Customizable depth** - Basic or advanced search modes
+
+## Setup
+
+### 1. Get Your Tavily API Key
+
+1. Sign up at [Tavily.com](https://tavily.com/)
+2. Get your API key from the dashboard
+
+### 2. Import the Configuration
+
+The Tavily configuration is included in `NUEVOS_HITOS.json`:
+
+```json
+{
+  "name": "Tavily AI Search",
+  "code": "tavily",
+  "baseUrl": "https://api.tavily.com",
+  "authenticationType": "API_KEY",
+  "apiKeyLocation": "IN_BODY",
+  "apiKeyName": "api_key",
+  "apiKeyValue": "<YOUR_API_KEY>",
+  "customHeaders": {
+    "Content-Type": "application/json"
+  },
+  "tools": [
+    {
+      "name": "Búsqueda Tavily",
+      "code": "tavily-search",
+      "description": "Realiza una búsqueda impulsada por IA optimizada para obtener respuestas y fuentes precisas.",
+      "endpointPath": "/search",
+      "httpMethod": "POST",
+      "enabled": true,
+      "isExportable": true,
+      "parameters": [
+        {
+          "name": "api_key",
+          "type": "STRING",
+          "description": "Clave API de Tavily (requerida en el cuerpo de la petición).",
+          "required": true
+        },
+        {
+          "name": "query",
+          "type": "STRING",
+          "description": "La consulta de búsqueda a procesar.",
+          "required": true
+        },
+        {
+          "name": "search_depth",
+          "type": "STRING",
+          "description": "Profundidad de búsqueda ('basic' o 'advanced').",
+          "required": false,
+          "defaultValue": "basic"
+        },
+        {
+          "name": "include_images",
+          "type": "BOOLEAN",
+          "description": "Si se deben incluir imágenes en los resultados (true/false).",
+          "required": false
+        }
+      ]
+    }
+  ]
+}
+```
+
+Import via API:
+
+```bash
+curl -X POST http://localhost:8080/api/import/providers \
+  -H "Content-Type: application/json" \
+  -d @NUEVOS_HITOS.json
+```
+
+<Note>
+Tavily uses `IN_BODY` authentication - the API key is sent in the request body, not as a header.
+</Note>
+
+## Example Queries
+
+### Basic Search
+
+**User request:**
+> "Search for the latest developments in AI agent frameworks"
+
+**LLM tool call:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "Búsqueda Tavily",
+    "arguments": {
+      "api_key": "YOUR_API_KEY",
+      "query": "latest developments AI agent frameworks 2026",
+      "search_depth": "basic"
+    }
+  },
+  "id": "msg_search_1"
+}
+```
+
+### Advanced Search with Images
+
+**LLM tool call:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "Búsqueda Tavily",
+    "arguments": {
+      "api_key": "YOUR_API_KEY",
+      "query": "HandsAI MCP protocol integration",
+      "search_depth": "advanced",
+      "include_images": true
+    }
+  },
+  "id": "msg_search_2"
+}
+```
+
+## Response Format
+
+Tavily returns structured search results optimized for AI consumption:
+
+```json
+{
+  "query": "latest developments AI agent frameworks 2026",
+  "answer": "In 2026, AI agent frameworks have seen significant advances including MCP (Model Context Protocol) standardization, improved tool discovery mechanisms, and better integration patterns for REST APIs.",
+  "results": [
+    {
+      "title": "MCP Protocol Adoption in 2026",
+      "url": "https://example.com/mcp-2026",
+      "content": "The Model Context Protocol (MCP) has become the standard for AI agent communication...",
+      "score": 0.95
+    },
+    {
+      "title": "HandsAI: Universal API Bridge",
+      "url": "https://github.com/Vrivaans/HandsAI",
+      "content": "HandsAI bridges MCP clients with REST APIs dynamically...",
+      "score": 0.89
+    }
+  ],
+  "images": [
+    {
+      "url": "https://example.com/image1.png",
+      "description": "MCP architecture diagram"
+    }
+  ],
+  "response_time": 1.23
+}
+```
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="AI-Optimized Results">
+    Tavily preprocesses search results to extract the most relevant information for LLMs, reducing token usage and improving response quality.
+  </Accordion>
+  
+  <Accordion title="Direct Answers">
+    The `answer` field provides a concise summary extracted from the search results, perfect for quick responses.
+  </Accordion>
+  
+  <Accordion title="Source Citations">
+    Every result includes the source URL and relevance score, enabling fact-checking and transparency.
+  </Accordion>
+  
+  <Accordion title="Search Depth Modes">
+    - **Basic**: Fast, sufficient for most queries
+    - **Advanced**: Deeper crawl, more comprehensive results
+  </Accordion>
+</AccordionGroup>
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Research" icon="book">
+    Gather information from multiple sources
+  </Card>
+  
+  <Card title="Fact-Checking" icon="circle-check">
+    Verify claims with cited sources
+  </Card>
+  
+  <Card title="News Monitoring" icon="newspaper">
+    Track latest developments in real-time
+  </Card>
+  
+  <Card title="Market Research" icon="chart-line">
+    Analyze trends and competitors
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Be Specific">
+    Use detailed queries for better results: "HandsAI MCP integration" instead of "API tools"
+  </Step>
+  
+  <Step title="Use Search Depth Wisely">
+    Start with `basic` for speed, upgrade to `advanced` only when needed
+  </Step>
+  
+  <Step title="Cite Sources">
+    Always include source URLs when presenting information to users
+  </Step>
+  
+  <Step title="Cache Results">
+    For repeated queries, consider caching results to reduce API calls
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GitHub Integration" icon="github" href="/use-cases/github">
+    Automate GitHub workflows
+  </Card>
+  
+  <Card title="Jules Agent" icon="robot" href="/use-cases/jules-agent">
+    Delegate coding tasks to Google's Jules
+  </Card>
+</CardGroup>

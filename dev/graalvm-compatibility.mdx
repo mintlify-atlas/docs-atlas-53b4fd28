@@ -1,0 +1,468 @@
+---
+title: GraalVM Compatibility
+description: Guidelines for maintaining GraalVM Native Image compatibility in HandsAI
+---
+
+## Why GraalVM Native Image?
+
+HandsAI is compiled as a GraalVM native executable to achieve:
+
+- **Lightning-fast startup**: < 1.5 seconds (vs ~15 seconds for JVM)
+- **Low memory footprint**: ~50MB (vs ~300MB for JVM)
+- **Instant responsiveness**: Critical for local AI agent deployments
+- **No warmup time**: Full performance from first request
+
+<Warning>
+Maintaining GraalVM compatibility is **CRITICAL** to HandsAI's core value proposition. All code contributions must preserve native image compilation.
+</Warning>
+
+## Closed-World Assumption
+
+GraalVM's Ahead-of-Time (AOT) compilation operates under a **closed-world assumption**:
+
+### What This Means
+
+1. **Build-time analysis**: GraalVM analyzes code at compile time to determine which classes, methods, and resources are used
+2. **Dead code elimination**: Anything not explicitly referenced is removed from the final binary
+3. **No runtime class loading**: Cannot dynamically load classes that weren't known at compile time
+4. **Static linking**: All dependencies bundled into a single executable
+
+### Impact on Development
+
+```java
+// ❌ BAD: Won't work in native image
+Class<?> clazz = Class.forName("com.example.DynamicClass");
+Object instance = clazz.getDeclaredConstructor().newInstance();
+
+// ✅ GOOD: Direct instantiation
+DynamicClass instance = new DynamicClass();
+```
+
+If you **must** use reflection, register the class explicitly (see below).
+
+## Reflection Registration
+
+### When Registration is Required
+
+You must register classes for reflection when using:
+
+- **Jackson deserialization** of complex types
+- **Jasypt encryption** (uses reflection internally)
+- **Dynamic proxies** (e.g., JPA lazy loading, Spring AOP)
+- **Class.forName()** or `getDeclaredMethod()`
+- **Annotations processed at runtime**
+
+### Using NativeHintsConfig.java
+
+HandsAI centralizes all reflection hints in `NativeHintsConfig.java`:
+
+```java
+package org.dynamcorp.handsaiv2.config;
+
+import org.springframework.aot.hint.MemberCategory;
+import org.springframework.aot.hint.RuntimeHints;
+import org.springframework.aot.hint.RuntimeHintsRegistrar;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.ImportRuntimeHints;
+
+@Configuration
+@ImportRuntimeHints(NativeHintsConfig.HandsAiRuntimeHints.class)
+public class NativeHintsConfig {
+
+    public static class HandsAiRuntimeHints implements RuntimeHintsRegistrar {
+
+        @Override
+        public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+            // Jasypt hints
+            hints.reflection().registerTypeIfPresent(classLoader,
+                    "org.springframework.boot.context.properties.source.ConfigurationPropertySourcesPropertySource",
+                    MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+                    MemberCategory.INVOKE_DECLARED_METHODS);
+
+            hints.reflection().registerTypeIfPresent(classLoader,
+                    "com.ulisesbocchio.jasyptspringboot.EncryptablePropertySourceConverter",
+                    MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+                    MemberCategory.INVOKE_DECLARED_METHODS);
+
+            // SQLite JDBC hints
+            hints.reflection().registerTypeIfPresent(classLoader,
+                    "org.sqlite.JDBC",
+                    MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+                    MemberCategory.INVOKE_DECLARED_METHODS);
+            
+            // Hibernate SQLite Dialect
+            hints.reflection().registerTypeIfPresent(classLoader,
+                    "org.hibernate.community.dialect.SQLiteDialect",
+                    MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+                    MemberCategory.INVOKE_DECLARED_METHODS);
+        }
+    }
+}
+```
+
+### Member Categories
+
+Common categories for registration:
+
+| Category | Purpose | Use When |
+|----------|---------|----------|
+| `INVOKE_DECLARED_CONSTRUCTORS` | Allow constructor invocation | Instantiating classes reflectively |
+| `INVOKE_DECLARED_METHODS` | Allow method invocation | Calling methods reflectively |
+| `DECLARED_FIELDS` | Access private fields | Serialization/deserialization |
+| `PUBLIC_FIELDS` | Access public fields | DTO mapping |
+| `INVOKE_PUBLIC_METHODS` | Public methods only | API reflection |
+
+### Adding New Reflection Hints
+
+When you introduce a library that uses reflection:
+
+```java
+@Override
+public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+    // Existing hints...
+    
+    // NEW: Register your custom DTO for Jackson
+    hints.reflection().registerType(
+        MyCustomDto.class,
+        MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+        MemberCategory.DECLARED_FIELDS
+    );
+    
+    // NEW: Register external library class if needed
+    hints.reflection().registerTypeIfPresent(classLoader,
+        "com.external.library.SomeClass",
+        MemberCategory.INVOKE_DECLARED_CONSTRUCTORS
+    );
+}
+```
+
+<Warning>
+Use `registerTypeIfPresent()` for optional dependencies to avoid errors if the class doesn't exist on the classpath.
+</Warning>
+
+## Resource Registration
+
+### When Resource Registration is Required
+
+Register resources when loading:
+
+- **JSON/XML configuration files** from classpath
+- **Template files** (Mustache, Thymeleaf)
+- **Properties files** loaded dynamically
+- **Static assets** bundled with application
+
+### Example Resource Registration
+
+```java
+@Override
+public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+    // Register individual resource
+    hints.resources().registerResource(
+        ResourcePatternUtils.getResourcePatternResolver(classLoader)
+            .getResource("classpath:templates/tool-template.json")
+    );
+    
+    // Register pattern (all JSON files in templates/)
+    hints.resources().registerPattern("templates/*.json");
+    
+    // Register entire directory
+    hints.resources().registerPattern("static/**");
+}
+```
+
+### Common Patterns
+
+```java
+// All properties files
+hints.resources().registerPattern("*.properties");
+
+// All YAML files
+hints.resources().registerPattern("*.yml");
+hints.resources().registerPattern("*.yaml");
+
+// Specific file
+hints.resources().registerPattern("application.properties");
+```
+
+## Testing Native Compilation
+
+### Build Native Image
+
+Test native compilation after significant changes:
+
+```bash
+# Full native build (takes several minutes)
+./mvnw -Pnative native:compile
+```
+
+Output:
+```
+[1/7] Initializing...
+[2/7] Performing analysis...
+[3/7] Building universe...
+[4/7] Parsing methods...
+[5/7] Inlining methods...
+[6/7] Compiling methods...
+[7/7] Creating image...
+
+Finished generating 'hands-ai-v2' in 3m 42s.
+```
+
+### Run Native Executable
+
+```bash
+# Execute the compiled binary
+./target/hands-ai-v2
+```
+
+Expected startup:
+```
+Started HandsAiV2Application in 0.842 seconds (process running for 0.845)
+```
+
+### Common Build Errors
+
+#### Missing Reflection Configuration
+
+```
+Error: Classes that should be initialized at run time got initialized during image building:
+  com.example.MyClass was unintentionally initialized at build time.
+```
+
+**Solution**: Add to `NativeHintsConfig.java`:
+```java
+hints.reflection().registerType(
+    com.example.MyClass.class,
+    MemberCategory.INVOKE_DECLARED_CONSTRUCTORS
+);
+```
+
+#### Missing Resource
+
+```
+Exception in thread "main" java.io.FileNotFoundException: 
+  class path resource [templates/tool.json] cannot be opened
+```
+
+**Solution**: Register resource pattern:
+```java
+hints.resources().registerPattern("templates/*.json");
+```
+
+#### Proxy Configuration Missing
+
+```
+Error: com.sun.proxy.$Proxy123 not found in image heap.
+```
+
+**Solution**: Register interface for proxy generation:
+```java
+hints.proxies().registerJdkProxy(MyInterface.class);
+```
+
+## GraalVM-Friendly Patterns
+
+### Prefer Direct Instantiation
+
+```java
+// ❌ Avoid reflection
+Object obj = Class.forName(className).getDeclaredConstructor().newInstance();
+
+// ✅ Use direct instantiation or factory pattern
+Object obj = switch (type) {
+    case "provider" -> new ApiProvider();
+    case "tool" -> new ApiTool();
+    default -> throw new IllegalArgumentException("Unknown type");
+};
+```
+
+### Use Java Records for DTOs
+
+Records work perfectly with GraalVM:
+
+```java
+public record ApiProviderResponse(
+    Long id,
+    String name,
+    String baseUrl
+) {
+    // No reflection needed for construction
+    public static ApiProviderResponse from(ApiProvider provider) {
+        return new ApiProviderResponse(
+            provider.getId(),
+            provider.getName(),
+            provider.getBaseUrl()
+        );
+    }
+}
+```
+
+### Avoid Dynamic Class Loading
+
+```java
+// ❌ Dynamic plugin loading won't work
+for (String className : pluginClassNames) {
+    Class<?> pluginClass = Class.forName(className);
+    Plugin plugin = (Plugin) pluginClass.getDeclaredConstructor().newInstance();
+}
+
+// ✅ Use service provider interface (SPI)
+// Create META-INF/services/com.example.Plugin
+ServiceLoader<Plugin> loader = ServiceLoader.load(Plugin.class);
+for (Plugin plugin : loader) {
+    // Use plugin
+}
+```
+
+### Compile-Time Constant Configuration
+
+```java
+// ❌ Runtime property evaluation
+String value = System.getProperty("dynamic.config");
+
+// ✅ Spring @Value with defaults
+@Value("${app.config.value:default}")
+private String configValue;
+```
+
+## Performance Benefits
+
+### Startup Time Comparison
+
+| Runtime | Startup Time | Memory (RSS) |
+|---------|--------------|---------------|
+| **JVM (OpenJDK)** | ~15 seconds | ~300 MB |
+| **GraalVM Native** | **0.8 seconds** | **~50 MB** |
+
+### Real-World Impact
+
+**MCP Agent Scenario**:
+- AI agent requests tool list
+- HandsAI queries database and responds
+- Total latency: **< 100ms** (native) vs ~2 seconds (JVM cold start)
+
+**Docker Container**:
+```dockerfile
+FROM scratch
+COPY target/hands-ai-v2 /app
+ENTRYPOINT ["/app"]
+# Image size: ~60MB vs ~200MB for JVM-based image
+```
+
+## Build Command Reference
+
+### Full Native Build
+
+```bash
+# Clean build with native compilation
+./mvnw clean -Pnative native:compile
+```
+
+### Quick Test (JVM Mode)
+
+```bash
+# Test with JVM before native compilation
+./mvnw spring-boot:run
+```
+
+### Native Build with Tests
+
+```bash
+# Run tests in native mode (slower)
+./mvnw -Pnative test
+```
+
+### Build Configuration
+
+From `pom.xml`:
+
+```xml
+<plugin>
+    <groupId>org.graalvm.buildtools</groupId>
+    <artifactId>native-maven-plugin</artifactId>
+</plugin>
+```
+
+Activate with `-Pnative` profile.
+
+## Common Issues and Solutions
+
+### Issue: Jackson Deserialization Fails
+
+**Error**:
+```
+Cannot construct instance of `MyDto` (no Creators, like default constructor, exist)
+```
+
+**Solution**: Register DTO for reflection:
+```java
+hints.reflection().registerType(
+    MyDto.class,
+    MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+    MemberCategory.DECLARED_FIELDS
+);
+```
+
+### Issue: JPA Entity Not Found
+
+**Error**:
+```
+Unknown entity: org.dynamcorp.handsaiv2.model.ApiProvider
+```
+
+**Solution**: Spring Boot auto-configuration usually handles this, but verify `@Entity` annotation is present.
+
+### Issue: Slow Native Build
+
+**Problem**: Native compilation takes 5+ minutes
+
+**Solutions**:
+- Use more memory: `export MAVEN_OPTS="-Xmx8g"`
+- Reduce optimization: Add `-Ob` to native-image args (faster build, slower runtime)
+- Use build cache between builds
+
+### Issue: Runtime ResourceBundle Error
+
+**Error**:
+```
+MissingResourceException: Can't find bundle for base name messages
+```
+
+**Solution**: Register resource bundle:
+```java
+hints.resourceBundle().registerResourceBundle("messages");
+```
+
+## When to Verify Native Compilation
+
+Run native build tests when:
+
+- ✅ Adding new dependencies (especially if they use reflection)
+- ✅ Introducing reflection or dynamic class loading
+- ✅ Adding resource files loaded at runtime
+- ✅ Modifying `NativeHintsConfig.java`
+- ✅ Before major releases
+- ❌ For simple logic changes (trust existing configuration)
+- ❌ For DTO/entity field additions (usually safe)
+
+<Warning>
+Always ask the user to verify native compilation after complex architectural changes:
+
+"Please test native compilation to ensure GraalVM compatibility:"
+```bash
+./mvnw -Pnative native:compile
+```
+</Warning>
+
+## Additional Resources
+
+- [GraalVM Native Image Documentation](https://www.graalvm.org/latest/reference-manual/native-image/)
+- [Spring Boot Native Documentation](https://docs.spring.io/spring-boot/reference/packaging/native-image/index.html)
+- [GraalVM Reflection Configuration](https://www.graalvm.org/latest/reference-manual/native-image/metadata/)
+- [Troubleshooting Native Image](https://www.graalvm.org/latest/reference-manual/native-image/debugging-and-diagnostics/)
+
+## Next Steps
+
+- [Contributing Guide](/dev/contributing) - Learn contribution workflow
+- [Tech Stack](/dev/tech-stack) - Understand GraalVM Native Maven Plugin
+- [Database Schema](/dev/database-schema) - See entity configuration

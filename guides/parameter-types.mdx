@@ -1,0 +1,694 @@
+---
+title: Parameter Type System
+description: Understanding STRING, NUMBER, BOOLEAN, ARRAY, and OBJECT parameters in HandsAI tools
+---
+
+HandsAI's parameter system allows AI agents to provide structured inputs to API tools. The type system ensures proper validation and serialization for external API calls.
+
+## Available Parameter Types
+
+HandsAI supports five parameter types defined in `ParameterType.java`:
+
+```java
+public enum ParameterType {
+    STRING,
+    NUMBER,
+    BOOLEAN,
+    OBJECT,
+    ARRAY
+}
+```
+
+**Source:** `ParameterType.java:3-9`
+
+## Parameter Schema
+
+Every parameter includes these fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | String | Parameter identifier (matches API field) |
+| `type` | Enum | STRING, NUMBER, BOOLEAN, ARRAY, or OBJECT |
+| `description` | String | Human-readable explanation for AI agents |
+| `required` | Boolean | Whether parameter is mandatory |
+| `defaultValue` | String | Fallback value if not provided |
+
+**Source:** `ToolParameter.java:18-26`
+
+## STRING Parameters
+
+The most common type for text input.
+
+### Basic Example
+
+```json
+{
+  "name": "title",
+  "type": "STRING",
+  "description": "Issue title",
+  "required": true,
+  "defaultValue": ""
+}
+```
+
+### Real-World Use Case: Email Sending
+
+From the Resend API integration:
+
+```json
+{
+  "parameters": [
+    {
+      "name": "from",
+      "type": "STRING",
+      "description": "Sender email address (e.g., Acme <onboarding@resend.dev>). Must be a verified domain.",
+      "required": true,
+      "defaultValue": ""
+    },
+    {
+      "name": "to",
+      "type": "STRING",
+      "description": "Recipient email address.",
+      "required": true,
+      "defaultValue": ""
+    },
+    {
+      "name": "subject",
+      "type": "STRING",
+      "description": "Email subject line.",
+      "required": true,
+      "defaultValue": ""
+    },
+    {
+      "name": "html",
+      "type": "STRING",
+      "description": "Email body in HTML format.",
+      "required": true,
+      "defaultValue": ""
+    }
+  ]
+}
+```
+
+**Source:** `NUEVOS_HITOS.json:24-51`
+
+### Usage in MCP Call
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "resend-send-email",
+    "arguments": {
+      "from": "notifications@myapp.com",
+      "to": "user@example.com",
+      "subject": "Welcome to MyApp",
+      "html": "<h1>Hello!</h1><p>Thanks for signing up.</p>"
+    }
+  }
+}
+```
+
+## NUMBER Parameters
+
+For integer and decimal values.
+
+### Basic Example
+
+```json
+{
+  "name": "limit",
+  "type": "NUMBER",
+  "description": "Number of results to return (e.g., 10)",
+  "required": false,
+  "defaultValue": "10"
+}
+```
+
+### Real-World Use Case: Bluesky Timeline
+
+```json
+{
+  "name": "limit",
+  "type": "NUMBER",
+  "description": "Number of posts to retrieve (e.g., 10)",
+  "required": false,
+  "defaultValue": "10"
+}
+```
+
+**Source:** `NUEVOS_HITOS.json:224-229`
+
+### Usage in MCP Call
+
+```json
+{
+  "name": "bluesky-timeline",
+  "arguments": {
+    "limit": 25
+  }
+}
+```
+
+**Note:** AI agents can send numbers as integers (`25`) or strings (`"25"`). HandsAI handles both.
+
+## BOOLEAN Parameters
+
+For true/false flags.
+
+### Basic Example
+
+```json
+{
+  "name": "include_images",
+  "type": "BOOLEAN",
+  "description": "Whether to include images in results (true/false).",
+  "required": false,
+  "defaultValue": ""
+}
+```
+
+### Real-World Use Case: Tavily Search
+
+```json
+{
+  "name": "include_images",
+  "type": "BOOLEAN",
+  "description": "Whether to include images in search results (true/false).",
+  "required": false,
+  "defaultValue": ""
+}
+```
+
+**Source:** `NUEVOS_HITOS.json:99-104`
+
+### Usage in MCP Call
+
+```json
+{
+  "name": "tavily-search",
+  "arguments": {
+    "query": "HandsAI documentation",
+    "include_images": true
+  }
+}
+```
+
+**Accepted Values:** `true`, `false`, `"true"`, `"false"`, `1`, `0`
+
+## ARRAY Parameters
+
+For lists of values, especially useful for multi-select options.
+
+### Basic Example
+
+```json
+{
+  "name": "platforms",
+  "type": "ARRAY",
+  "description": "Target social media platforms: linkedin, twitter, facebook, instagram",
+  "required": true,
+  "defaultValue": "[\"linkedin\"]"
+}
+```
+
+### Real-World Use Case: Social Media Posting
+
+From the Ayrshare integration (multi-platform posting):
+
+```json
+{
+  "name": "Publicar en Redes Sociales (Ayrshare)",
+  "code": "ayrshare-post",
+  "description": "Publica contenido en múltiples plataformas de redes sociales simultáneamente.",
+  "parameters": [
+    {
+      "name": "post",
+      "type": "STRING",
+      "description": "El contenido a publicar.",
+      "required": true
+    },
+    {
+      "name": "platforms",
+      "type": "ARRAY",
+      "description": "Lista de plataformas donde publicar (ej: linkedin, twitter, facebook, instagram).",
+      "required": true,
+      "defaultValue": "[\"linkedin\"]"
+    },
+    {
+      "name": "mediaUrls",
+      "type": "ARRAY",
+      "description": "URLs de imágenes o videos a adjuntar (array de strings).",
+      "required": false,
+      "defaultValue": ""
+    }
+  ]
+}
+```
+
+### Usage in MCP Call
+
+<Tabs>
+  <Tab title="Native Array">
+    AI agents can send arrays as native JSON:
+
+    ```json
+    {
+      "name": "ayrshare-post",
+      "arguments": {
+        "post": "Check out our new feature!",
+        "platforms": ["linkedin", "twitter"],
+        "mediaUrls": [
+          "https://example.com/image1.jpg",
+          "https://example.com/image2.jpg"
+        ]
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="JSON String">
+    Some LLMs send arrays as JSON strings:
+
+    ```json
+    {
+      "name": "ayrshare-post",
+      "arguments": {
+        "post": "Check out our new feature!",
+        "platforms": "[\"linkedin\", \"twitter\"]",
+        "mediaUrls": "[\"https://example.com/image1.jpg\"]"
+      }
+    }
+    ```
+
+    HandsAI automatically deserializes these strings to arrays.
+
+    **Source:** `ToolExecutionService.java:372-412`
+  </Tab>
+</Tabs>
+
+### Array Deserialization Logic
+
+HandsAI handles ARRAY parameters intelligently:
+
+```java
+if (value instanceof String) {
+    String strVal = ((String) value).trim();
+    if (strVal.startsWith("[")) {
+        List<Object> parsed = objectMapper.readValue(strVal, new TypeReference<List<Object>>() {});
+        bodyParams.put(param.getName(), parsed);
+    }
+}
+```
+
+**Behavior:**
+1. If value is already a `List` → Use as-is
+2. If value is a `String` starting with `[` → Deserialize to `List`
+3. Otherwise → Leave unchanged
+
+**Source:** `ToolExecutionService.java:385-411`
+
+<Info>
+  **Why This Matters**
+  
+  Different LLMs serialize arrays differently:
+  - Claude might send: `["a", "b"]` (native array)
+  - GPT might send: `"[\"a\", \"b\"]"` (JSON string)
+  
+  HandsAI handles both automatically, so tools work with any MCP client.
+</Info>
+
+## OBJECT Parameters
+
+For complex nested JSON structures (experimental).
+
+### Basic Example
+
+```json
+{
+  "name": "metadata",
+  "type": "OBJECT",
+  "description": "Additional metadata as JSON object",
+  "required": false,
+  "defaultValue": "{}"
+}
+```
+
+### Usage in MCP Call
+
+```json
+{
+  "name": "custom-api-tool",
+  "arguments": {
+    "metadata": {
+      "user_id": "12345",
+      "source": "mobile_app",
+      "version": "2.1.0"
+    }
+  }
+}
+```
+
+<Warning>
+  **Limited Support**
+  
+  OBJECT parameters are currently experimental. For complex nested data, consider using STRING parameters with JSON serialization instead.
+</Warning>
+
+## Required vs Optional Parameters
+
+### Required Parameters
+
+```json
+{
+  "name": "query",
+  "type": "STRING",
+  "description": "Search query to process.",
+  "required": true,
+  "defaultValue": ""
+}
+```
+
+AI agents **must** provide this value. MCP calls without it will fail.
+
+### Optional Parameters with Defaults
+
+```json
+{
+  "name": "state",
+  "type": "STRING",
+  "description": "Filter by PR state (open, closed, all).",
+  "required": false,
+  "defaultValue": "open"
+}
+```
+
+If omitted, HandsAI uses `"open"` as the value.
+
+**Source:** `NUEVOS_HITOS.json:185-191`
+
+### Optional Parameters Without Defaults
+
+```json
+{
+  "name": "body",
+  "type": "STRING",
+  "description": "Issue description (supports Markdown).",
+  "required": false,
+  "defaultValue": ""
+}
+```
+
+If omitted, the parameter is not sent to the API.
+
+**Source:** `NUEVOS_HITOS.json:154-159`
+
+## Parameter Validation
+
+<AccordionGroup>
+  <Accordion title="Required Field Validation">
+    HandsAI validates required parameters before making API calls. Missing required fields result in:
+
+    ```json
+    {
+      "error": {
+        "code": -32602,
+        "message": "Invalid params: missing required parameter 'query'"
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Type Coercion">
+    HandsAI attempts to coerce types:
+    - `"25"` (string) → `25` (number) for NUMBER parameters
+    - `"true"` (string) → `true` (boolean) for BOOLEAN parameters
+    - `"[1,2,3]"` (string) → `[1,2,3]` (array) for ARRAY parameters
+  </Accordion>
+
+  <Accordion title="Default Value Application">
+    Default values are applied **before** API execution if:
+    1. Parameter is optional (`required: false`)
+    2. No value provided by AI agent
+    3. `defaultValue` is non-empty
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Descriptive Names">
+    Parameter names should match the target API's field names exactly:
+    
+    ```json
+    // GitHub API expects "owner" and "repo"
+    {"name": "owner", "type": "STRING"},
+    {"name": "repo", "type": "STRING"}
+    ```
+    
+    Don't rename to `repository_owner` unless the API uses that name.
+  </Accordion>
+
+  <Accordion title="Provide Clear Descriptions">
+    Descriptions are shown to AI agents. Include:
+    - Expected format (e.g., "ISO 8601 date")
+    - Valid values (e.g., "open, closed, or all")
+    - Examples (e.g., "e.g., facebook/react")
+    
+    ```json
+    {
+      "description": "Repository owner (user or organization, e.g., 'facebook')."
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Use ARRAY for Multi-Select Options">
+    When an API accepts multiple values, use ARRAY instead of comma-separated strings:
+    
+    ✅ **Good:**
+    ```json
+    {
+      "name": "platforms",
+      "type": "ARRAY",
+      "defaultValue": "[\"linkedin\"]"
+    }
+    ```
+    
+    ❌ **Avoid:**
+    ```json
+    {
+      "name": "platforms",
+      "type": "STRING",
+      "defaultValue": "linkedin,twitter"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Set Sensible Defaults">
+    For optional parameters, provide defaults that work for 80% of use cases:
+    
+    ```json
+    {
+      "name": "limit",
+      "type": "NUMBER",
+      "required": false,
+      "defaultValue": "10"  // Most users want ~10 results
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Real-World Examples
+
+### Example 1: GitHub Issue Creation
+
+Combines STRING parameters (required and optional) with path parameters:
+
+```json
+{
+  "name": "Create GitHub Issue",
+  "code": "github-create-issue",
+  "endpointPath": "/repos/{owner}/{repo}/issues",
+  "httpMethod": "POST",
+  "parameters": [
+    {
+      "name": "owner",
+      "type": "STRING",
+      "description": "Repository owner (user or organization, e.g., 'facebook').",
+      "required": true
+    },
+    {
+      "name": "repo",
+      "type": "STRING",
+      "description": "Repository name (e.g., 'react').",
+      "required": true
+    },
+    {
+      "name": "title",
+      "type": "STRING",
+      "description": "Issue title.",
+      "required": true
+    },
+    {
+      "name": "body",
+      "type": "STRING",
+      "description": "Issue description (supports Markdown).",
+      "required": false
+    }
+  ]
+}
+```
+
+**Source:** `NUEVOS_HITOS.json:124-160`
+
+### Example 2: Tavily AI Search
+
+Mixes STRING, BOOLEAN parameters with defaults:
+
+```json
+{
+  "name": "Tavily Search",
+  "code": "tavily-search",
+  "endpointPath": "/search",
+  "httpMethod": "POST",
+  "parameters": [
+    {
+      "name": "api_key",
+      "type": "STRING",
+      "description": "Tavily API key (required in request body).",
+      "required": true
+    },
+    {
+      "name": "query",
+      "type": "STRING",
+      "description": "The search query to process.",
+      "required": true
+    },
+    {
+      "name": "search_depth",
+      "type": "STRING",
+      "description": "Search depth ('basic' or 'advanced').",
+      "required": false,
+      "defaultValue": "basic"
+    },
+    {
+      "name": "include_images",
+      "type": "BOOLEAN",
+      "description": "Whether to include images in results (true/false).",
+      "required": false
+    }
+  ]
+}
+```
+
+**Source:** `NUEVOS_HITOS.json:68-105`
+
+### Example 3: Google Jules Session Creation
+
+Complex example with STRING parameters and optional fields:
+
+```json
+{
+  "name": "Create Jules Session",
+  "code": "jules-create-session",
+  "endpointPath": "/v1alpha/sessions",
+  "httpMethod": "POST",
+  "parameters": [
+    {
+      "name": "prompt",
+      "type": "STRING",
+      "description": "The prompt for the Jules agent.",
+      "required": true
+    },
+    {
+      "name": "source",
+      "type": "STRING",
+      "description": "The source name (format: 'sources/github/owner/repo', use jules-list-sources to get the list).",
+      "required": true
+    },
+    {
+      "name": "automationMode",
+      "type": "STRING",
+      "description": "Optional integration mode, e.g., 'AUTO_CREATE_PR'",
+      "required": false
+    },
+    {
+      "name": "startingBranch",
+      "type": "STRING",
+      "description": "The branch to start the Jules session from.",
+      "required": false,
+      "defaultValue": "main"
+    }
+  ]
+}
+```
+
+**Source:** `NUEVOS_HITOS.json:258-295`
+
+## Testing Parameters
+
+### Manual Testing
+
+```bash
+curl -X POST http://localhost:8080/api/mcp/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method": "tools/call",
+    "params": {
+      "name": "ayrshare-post",
+      "arguments": {
+        "post": "Test post from HandsAI",
+        "platforms": ["linkedin"],
+        "mediaUrls": []
+      }
+    }
+  }'
+```
+
+### Validating Tool Configuration
+
+```bash
+# Get tool details
+curl http://localhost:8080/admin/tools/api | jq '.[] | select(.code=="ayrshare-post")'
+
+# Check parameter definitions
+curl http://localhost:8080/admin/tools/api/{id} | jq '.parameters'
+```
+
+## Common Issues
+
+<Warning>
+  **ARRAY parameter not deserializing?**
+  
+  Ensure the JSON string is properly escaped:
+  - ✅ `"[\"a\", \"b\"]"` (double-escaped for JSON)
+  - ❌ `"['a', 'b']"` (single quotes don't parse)
+  
+  **Source:** `ToolExecutionService.java:397-408`
+</Warning>
+
+<Warning>
+  **Default values not applying?**
+  
+  Check:
+  1. Parameter is marked `required: false`
+  2. `defaultValue` is a non-empty string
+  3. For ARRAY defaults, use escaped JSON: `"[\"value\"]"`
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Register Tools" icon="wrench" href="/guides/registering-tools">
+    Create tools with properly typed parameters
+  </Card>
+  <Card title="Import/Export" icon="download" href="/guides/importing-exporting">
+    Share tool configurations with parameter definitions
+  </Card>
+  <Card title="Managing Providers" icon="server" href="/guides/managing-providers">
+    Configure authentication for API providers
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/mcp/overview">
+    Complete endpoint documentation
+  </Card>
+</CardGroup>

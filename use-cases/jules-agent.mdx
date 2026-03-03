@@ -1,0 +1,501 @@
+---
+title: 'Jules Agent API'
+description: 'Delegate coding tasks to Google Jules AI agent with automatic PR creation'
+icon: 'robot'
+---
+
+# Jules Agent API Integration
+
+Delegate coding tasks to [Jules](https://jules.google/), Google's AI agent for code, directly from your LLM. Jules can create sessions, analyze repositories, propose plans, and automatically open pull requests.
+
+## What It Does
+
+The Jules Agent integration allows your LLM to:
+- **Create coding sessions** - Start tasks in GitHub repositories
+- **Monitor progress** - Track Jules as it works
+- **Approve plans** - Review and approve proposed changes
+- **Auto-create PRs** - Jules opens pull requests automatically
+- **Send messages** - Interact with active sessions
+
+## Key Feature: Body Payload Template
+
+This integration showcases HandsAI's **bodyPayloadTemplate** feature for complex nested JSON structures:
+
+```json
+{
+  "prompt": "{{prompt}}",
+  "sourceContext": {
+    "source": "{{source}}",
+    "githubRepoContext": {
+      "startingBranch": "{{startingBranch}}"
+    }
+  },
+  "automationMode": "{{automationMode}}"
+}
+```
+
+HandsAI interpolates `{{param}}` placeholders with actual parameter values.
+
+## Setup
+
+### 1. Get Your Jules API Key
+
+<Steps>
+  <Step title="Sign in to Jules">
+    Go to [jules.google.com](https://jules.google.com/) and sign in
+  </Step>
+  
+  <Step title="Connect GitHub">
+    Link your GitHub account to Jules
+  </Step>
+  
+  <Step title="Get API Key">
+    Navigate to [jules.google.com/settings](https://jules.google.com/settings) and generate an API key
+  </Step>
+  
+  <Step title="Copy Key">
+    Save your API key securely
+  </Step>
+</Steps>
+
+### 2. Import the Configuration
+
+The Jules configuration is included in `NUEVOS_HITOS.json`:
+
+```json
+{
+  "name": "Jules Agent API",
+  "code": "google-jules-api",
+  "baseUrl": "https://jules.googleapis.com",
+  "authenticationType": "API_KEY",
+  "apiKeyLocation": "HEADER",
+  "apiKeyName": "x-goog-api-key",
+  "apiKeyValue": "<YOUR_JULES_API_KEY>",
+  "isDynamicAuth": false,
+  "customHeaders": {
+    "Content-Type": "application/json"
+  },
+  "tools": [
+    {
+      "name": "List Jules Sources",
+      "code": "jules-list-sources",
+      "description": "Lists available sources (like GitHub repositories) connected to Jules.",
+      "endpointPath": "/v1alpha/sources",
+      "httpMethod": "GET",
+      "enabled": true,
+      "isExportable": true,
+      "parameters": []
+    },
+    {
+      "name": "Create Jules Session",
+      "code": "jules-create-session",
+      "description": "Creates a new Jules session for a specific source.",
+      "endpointPath": "/v1alpha/sessions",
+      "httpMethod": "POST",
+      "enabled": true,
+      "isExportable": true,
+      "bodyPayloadTemplate": "{\"prompt\": \"{{prompt}}\", \"sourceContext\": {\"source\": \"{{source}}\", \"githubRepoContext\": {\"startingBranch\": \"{{startingBranch}}\"}}, \"automationMode\": \"{{automationMode}}\"}",
+      "parameters": [
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "description": "The prompt for the Jules agent.",
+          "required": true
+        },
+        {
+          "name": "source",
+          "type": "STRING",
+          "description": "The name of the source (format: 'sources/github/owner/repo').",
+          "required": true
+        },
+        {
+          "name": "automationMode",
+          "type": "STRING",
+          "description": "Optional integration mode, e.g., 'AUTO_CREATE_PR'",
+          "required": false
+        },
+        {
+          "name": "startingBranch",
+          "type": "STRING",
+          "description": "The branch to start the Jules session from.",
+          "required": false,
+          "defaultValue": "main"
+        }
+      ]
+    },
+    {
+      "name": "Send Jules Message",
+      "code": "jules-send-message",
+      "description": "Sends a message to an active Jules session.",
+      "endpointPath": "/v1alpha/sessions/{session_id}:sendMessage",
+      "httpMethod": "POST",
+      "enabled": true,
+      "isExportable": true,
+      "parameters": [
+        {
+          "name": "session_id",
+          "type": "STRING",
+          "description": "The ID of the session",
+          "required": true
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "description": "The message/prompt to send",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "List Jules Sessions",
+      "code": "jules-list-sessions",
+      "description": "Lists recent Jules sessions.",
+      "endpointPath": "/v1alpha/sessions",
+      "httpMethod": "GET",
+      "enabled": true,
+      "isExportable": true,
+      "parameters": [
+        {
+          "name": "pageSize",
+          "type": "NUMBER",
+          "description": "Number of sessions to return",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "Approve Jules Plan",
+      "code": "jules-approve-plan",
+      "description": "Approves the latest plan in a session that requires explicit approval.",
+      "endpointPath": "/v1alpha/sessions/{session_id}:approvePlan",
+      "httpMethod": "POST",
+      "enabled": true,
+      "isExportable": true,
+      "parameters": [
+        {
+          "name": "session_id",
+          "type": "STRING",
+          "description": "The ID of the session",
+          "required": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+Import via API:
+
+```bash
+curl -X POST http://localhost:8080/api/import/providers \
+  -H "Content-Type: application/json" \
+  -d @NUEVOS_HITOS.json
+```
+
+<Warning>
+Replace `<YOUR_JULES_API_KEY>` with your actual Jules API key from jules.google.com/settings
+</Warning>
+
+## Example Workflow
+
+### Step 1: List Available Sources
+
+First, discover which repositories Jules can access:
+
+**LLM tool call:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "List Jules Sources",
+    "arguments": {}
+  },
+  "id": "msg_jules_1"
+}
+```
+
+**Response:**
+```json
+{
+  "sources": [
+    {
+      "name": "sources/github/Vrivaans/HandsAI",
+      "displayName": "HandsAI",
+      "type": "GITHUB_REPOSITORY"
+    },
+    {
+      "name": "sources/github/myorg/myproject",
+      "displayName": "My Project",
+      "type": "GITHUB_REPOSITORY"
+    }
+  ]
+}
+```
+
+### Step 2: Create a Session
+
+Start a new coding task with Jules:
+
+**User request:**
+> "Ask Jules to add TypeScript support to the HandsAI project"
+
+**LLM tool call:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "Create Jules Session",
+    "arguments": {
+      "prompt": "Add TypeScript support to the project with proper type definitions",
+      "source": "sources/github/Vrivaans/HandsAI",
+      "startingBranch": "main",
+      "automationMode": "AUTO_CREATE_PR"
+    }
+  },
+  "id": "msg_jules_2"
+}
+```
+
+**HandsAI constructs the request:**
+```
+POST https://jules.googleapis.com/v1alpha/sessions
+x-goog-api-key: YOUR_JULES_API_KEY
+Content-Type: application/json
+
+{
+  "prompt": "Add TypeScript support to the project with proper type definitions",
+  "sourceContext": {
+    "source": "sources/github/Vrivaans/HandsAI",
+    "githubRepoContext": {
+      "startingBranch": "main"
+    }
+  },
+  "automationMode": "AUTO_CREATE_PR"
+}
+```
+
+**Response:**
+```json
+{
+  "name": "sessions/abc123def456",
+  "state": "ACTIVE",
+  "createTime": "2026-03-03T16:00:00Z",
+  "sourceContext": {
+    "source": "sources/github/Vrivaans/HandsAI"
+  }
+}
+```
+
+### Step 3: Monitor Progress
+
+Check the session status:
+
+**LLM tool call:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "Send Jules Message",
+    "arguments": {
+      "session_id": "sessions/abc123def456",
+      "prompt": "What's your progress?"
+    }
+  },
+  "id": "msg_jules_3"
+}
+```
+
+### Step 4: Approve Plan (if needed)
+
+If Jules is waiting for approval:
+
+**LLM tool call:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "Approve Jules Plan",
+    "arguments": {
+      "session_id": "sessions/abc123def456"
+    }
+  },
+  "id": "msg_jules_4"
+}
+```
+
+### Step 5: Jules Creates PR
+
+With `automationMode: "AUTO_CREATE_PR"`, Jules automatically:
+1. Creates a new branch
+2. Commits the changes
+3. Opens a pull request on GitHub
+4. Returns the PR URL
+
+## Automation Modes
+
+<AccordionGroup>
+  <Accordion title="AUTO_CREATE_PR">
+    Jules automatically creates a pull request when the task is complete. Best for trusted workflows.
+  </Accordion>
+  
+  <Accordion title="Manual Mode">
+    Omit `automationMode` to require manual approval at each step. Best for sensitive changes.
+  </Accordion>
+</AccordionGroup>
+
+## Real-World Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Feature Development" icon="code">
+    "Add dark mode to the dashboard"
+  </Card>
+  
+  <Card title="Bug Fixes" icon="bug">
+    "Fix the memory leak in the worker process"
+  </Card>
+  
+  <Card title="Refactoring" icon="arrows-rotate">
+    "Refactor authentication to use JWT"
+  </Card>
+  
+  <Card title="Documentation" icon="book">
+    "Add JSDoc comments to all public functions"
+  </Card>
+</CardGroup>
+
+## Advanced: Session Management
+
+### List All Sessions
+
+```json
+{
+  "name": "List Jules Sessions",
+  "arguments": {
+    "pageSize": 10
+  }
+}
+```
+
+### Interactive Refinement
+
+Send follow-up messages to guide Jules:
+
+```json
+{
+  "name": "Send Jules Message",
+  "arguments": {
+    "session_id": "sessions/abc123def456",
+    "prompt": "Also add unit tests for the new TypeScript types"
+  }
+}
+```
+
+## Body Payload Template Explained
+
+The `bodyPayloadTemplate` feature allows complex nested structures:
+
+**Template:**
+```json
+{
+  "prompt": "{{prompt}}",
+  "sourceContext": {
+    "source": "{{source}}",
+    "githubRepoContext": {
+      "startingBranch": "{{startingBranch}}"
+    }
+  },
+  "automationMode": "{{automationMode}}"
+}
+```
+
+**Parameters:**
+- `prompt`: "Add TypeScript support"
+- `source`: "sources/github/Vrivaans/HandsAI"
+- `startingBranch`: "main"
+- `automationMode`: "AUTO_CREATE_PR"
+
+**Result:**
+```json
+{
+  "prompt": "Add TypeScript support",
+  "sourceContext": {
+    "source": "sources/github/Vrivaans/HandsAI",
+    "githubRepoContext": {
+      "startingBranch": "main"
+    }
+  },
+  "automationMode": "AUTO_CREATE_PR"
+}
+```
+
+<Note>
+This is especially useful for APIs that require specific nested JSON structures that don't map to flat parameter lists.
+</Note>
+
+## Security Considerations
+
+<Warning>
+Jules has write access to your repositories. Always review PRs before merging, even in AUTO_CREATE_PR mode.
+</Warning>
+
+<Steps>
+  <Step title="Limit Scope">
+    Only connect repositories that Jules should modify
+  </Step>
+  
+  <Step title="Use Branch Protection">
+    Require reviews and checks before merging Jules PRs
+  </Step>
+  
+  <Step title="Monitor Sessions">
+    Regularly check active sessions for unexpected activity
+  </Step>
+  
+  <Step title="Rotate Keys">
+    Regenerate API keys periodically
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Session stuck in ACTIVE state">
+    Send a message to check progress or wait for Jules to complete the task. Sessions may take several minutes for complex changes.
+  </Accordion>
+  
+  <Accordion title="Source not found">
+    Ensure the repository is connected to Jules at jules.google.com and use the exact source format: `sources/github/owner/repo`
+  </Accordion>
+  
+  <Accordion title="Permission denied">
+    Verify your API key has access to the repository and that Jules has the necessary GitHub permissions.
+  </Accordion>
+</AccordionGroup>
+
+## From the HandsAI README
+
+> **Jules Agent API** — Integration with [Jules from Google](https://jules.google/docs/api/reference/) to delegate code tasks to an autonomous AI agent that creates PRs automatically. Import the config from `NUEVOS_HITOS.json` (requires API Key from jules.google.com/settings).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Overview" icon="grid-2" href="/use-cases/overview">
+    Back to use cases overview
+  </Card>
+  
+  <Card title="GitHub Integration" icon="github" href="/use-cases/github">
+    Manage repos with GitHub API
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/import-export/overview">
+    Learn about import/export
+  </Card>
+  
+  <Card title="Development" icon="wrench" href="/dev/contributing">
+    Extend HandsAI with new tools
+  </Card>
+</CardGroup>

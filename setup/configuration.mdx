@@ -1,0 +1,264 @@
+---
+title: 'Configuration'
+description: 'Configure HandsAI database, security, and performance settings'
+icon: 'gear'
+---
+
+HandsAI is configured through `src/main/resources/application.properties`. All settings have sensible defaults for local development.
+
+## Database Configuration
+
+HandsAI uses SQLite as its embedded database with optimizations for concurrent access.
+
+<ParamField path="spring.datasource.url" type="string" default="jdbc:sqlite:handsai.db?journal_mode=WAL&busy_timeout=5000">
+  SQLite database connection URL. The database file is created in the project root.
+  
+  **Parameters:**
+  - `journal_mode=WAL` - Write-Ahead Logging for better concurrency
+  - `busy_timeout=5000` - 5-second timeout when database is locked
+</ParamField>
+
+<ParamField path="spring.datasource.driver-class-name" type="string" default="org.sqlite.JDBC">
+  JDBC driver class for SQLite. Should not be modified.
+</ParamField>
+
+<ParamField path="spring.jpa.database-platform" type="string" default="org.hibernate.community.dialect.SQLiteDialect">
+  Hibernate dialect for SQLite. Enables JPA compatibility with SQLite.
+</ParamField>
+
+<ParamField path="spring.jpa.hibernate.ddl-auto" type="string" default="update">
+  Schema generation strategy. Options:
+  - `update` - Update schema automatically (recommended for development)
+  - `create` - Drop and recreate schema on startup
+  - `validate` - Validate schema without changes
+  - `none` - No schema management
+</ParamField>
+
+<ParamField path="spring.jpa.show-sql" type="boolean" default="false">
+  Enable to log all SQL statements to console. Useful for debugging.
+</ParamField>
+
+### Connection Pool Settings
+
+HandsAI uses HikariCP for database connection pooling:
+
+<ParamField path="spring.datasource.hikari.maximum-pool-size" type="number" default="20">
+  Maximum number of connections in the pool. Increase for high-concurrency scenarios.
+</ParamField>
+
+<ParamField path="spring.datasource.hikari.minimum-idle" type="number" default="5">
+  Minimum number of idle connections maintained in the pool.
+</ParamField>
+
+<ParamField path="spring.datasource.hikari.idle-timeout" type="number" default="300000">
+  Maximum time (in milliseconds) that a connection can sit idle in the pool. Default: 5 minutes.
+</ParamField>
+
+<ParamField path="spring.datasource.hikari.max-lifetime" type="number" default="600000">
+  Maximum lifetime (in milliseconds) of a connection in the pool. Default: 10 minutes.
+</ParamField>
+
+<ParamField path="spring.datasource.hikari.connection-timeout" type="number" default="30000">
+  Maximum time (in milliseconds) to wait for a connection from the pool. Default: 30 seconds.
+</ParamField>
+
+## Server Configuration
+
+<ParamField path="spring.application.name" type="string" default="handsaiv2">
+  Application name used in logs and Spring Boot actuators.
+</ParamField>
+
+<ParamField path="server.port" type="number" default="8080">
+  HTTP port for the HandsAI server. Change if port 8080 is already in use.
+  
+  ```properties
+  server.port=8081
+  ```
+</ParamField>
+
+## Encryption Configuration (Jasypt)
+
+HandsAI uses Jasypt to encrypt sensitive values like API keys stored in the database.
+
+<ParamField path="jasypt.encryptor.password" type="string" default="handsai-secret-key">
+  Master password for encrypting/decrypting sensitive data. 
+  
+  <Warning>
+    **Change this in production!** Set via environment variable:
+    ```bash
+    export JASYPT_ENCRYPTOR_PASSWORD="your-secure-password-here"
+    ./mvnw spring-boot:run
+    ```
+  </Warning>
+</ParamField>
+
+<ParamField path="jasypt.encryptor.algorithm" type="string" default="PBEWithMD5AndDES">
+  Encryption algorithm used by Jasypt. Should not be changed unless you have specific security requirements.
+</ParamField>
+
+<ParamField path="jasypt.encryptor.iv-generator-classname" type="string" default="org.jasypt.iv.NoIvGenerator">
+  Initialization vector generator. Required for GraalVM compatibility.
+</ParamField>
+
+## Virtual Threads Configuration
+
+HandsAI leverages Java 21's virtual threads for high concurrency and scalability.
+
+<ParamField path="spring.threads.virtual.enabled" type="boolean" default="true">
+  Enables virtual threads for all Spring Boot managed thread pools.
+  
+  Benefits:
+  - Thousands of concurrent tool executions
+  - Lower memory overhead per request
+  - Better throughput for I/O-bound operations
+  
+  <Note>
+    Virtual threads are a Java 21+ feature. Do not disable unless you have compatibility issues.
+  </Note>
+</ParamField>
+
+## Security Configuration
+
+<ParamField path="security.ssrf.allow-private-networks" type="boolean" default="false">
+  Controls whether tools can call private network addresses (localhost, 192.168.x.x, 10.x.x.x, etc.).
+  
+  Set to `true` if you need to call APIs running on your local network:
+  
+  ```properties
+  security.ssrf.allow-private-networks=true
+  ```
+  
+  <Warning>
+    Enabling this can expose your internal network to SSRF attacks if malicious tool definitions are imported.
+  </Warning>
+</ParamField>
+
+## Logging Configuration
+
+Customize logging levels for debugging and monitoring:
+
+<ParamField path="logging.level.org.springframework.orm.jpa" type="string" default="INFO">
+  Spring Data JPA logging level.
+</ParamField>
+
+<ParamField path="logging.level.org.hibernate.SQL" type="string" default="DEBUG">
+  SQL statement logging. Set to `INFO` or `WARN` in production to reduce log noise.
+</ParamField>
+
+<ParamField path="logging.level.org.hibernate.type.descriptor.sql.BasicBinder" type="string" default="TRACE">
+  SQL parameter binding logging. Shows actual values passed to queries. Set to `INFO` in production.
+</ParamField>
+
+### Recommended Production Logging
+
+```properties
+logging.level.org.springframework.orm.jpa=WARN
+logging.level.org.hibernate.SQL=WARN
+logging.level.org.hibernate.type.descriptor.sql.BasicBinder=WARN
+logging.level.org.dynamcorp.handsaiv2=INFO
+```
+
+## Environment Variables
+
+Sensitive configuration values should be set via environment variables:
+
+```bash
+# Encryption password
+export JASYPT_ENCRYPTOR_PASSWORD="your-production-secret"
+
+# Custom database location
+export SPRING_DATASOURCE_URL="jdbc:sqlite:/var/handsai/production.db?journal_mode=WAL&busy_timeout=5000"
+
+# Custom port
+export SERVER_PORT=8081
+
+# Run HandsAI
+./mvnw spring-boot:run
+```
+
+## Configuration Examples
+
+### Development Configuration
+
+Optimal for local development with verbose logging:
+
+```properties
+spring.jpa.show-sql=true
+logging.level.org.hibernate.SQL=DEBUG
+security.ssrf.allow-private-networks=true
+server.port=8080
+```
+
+### Production Configuration
+
+Optimized for production with minimal logging:
+
+```properties
+spring.jpa.show-sql=false
+logging.level.org.hibernate.SQL=WARN
+security.ssrf.allow-private-networks=false
+server.port=8080
+jasypt.encryptor.password=${JASYPT_ENCRYPTOR_PASSWORD}
+```
+
+### High-Concurrency Configuration
+
+For scenarios with many concurrent tool executions:
+
+```properties
+spring.datasource.hikari.maximum-pool-size=50
+spring.datasource.hikari.minimum-idle=10
+spring.threads.virtual.enabled=true
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Database is locked errors">
+    Increase the busy timeout:
+    
+    ```properties
+    spring.datasource.url=jdbc:sqlite:handsai.db?journal_mode=WAL&busy_timeout=10000
+    ```
+    
+    Or increase the connection pool size:
+    
+    ```properties
+    spring.datasource.hikari.maximum-pool-size=30
+    ```
+  </Accordion>
+  
+  <Accordion title="Port 8080 already in use">
+    Change the server port:
+    
+    ```properties
+    server.port=8081
+    ```
+    
+    Or set via environment variable:
+    
+    ```bash
+    export SERVER_PORT=8081
+    ./mvnw spring-boot:run
+    ```
+  </Accordion>
+  
+  <Accordion title="Jasypt decryption errors">
+    Ensure the `JASYPT_ENCRYPTOR_PASSWORD` environment variable matches the password used to encrypt the data:
+    
+    ```bash
+    export JASYPT_ENCRYPTOR_PASSWORD="your-original-password"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Bridge Setup" icon="bridge" href="/setup/bridge-setup">
+    Connect HandsAI to MCP clients like Claude Desktop
+  </Card>
+  <Card title="GraalVM Native" icon="bolt" href="/setup/graalvm-native">
+    Compile to a native executable for instant startup
+  </Card>
+</CardGroup>
