@@ -1,0 +1,130 @@
+{
+  "projectType": "api-service",
+  "projectName": "HandsAI",
+  "projectDescription": "MCP bridge service that dynamically exposes REST APIs as tools for LLMs to discover and execute",
+  "theme": "aspen",
+  "primaryColor": "#8B5CF6",
+  "lightColor": "#A78BFA",
+  "darkColor": "#6D28D9",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/mcp-protocol",
+              "concepts/tool-registry",
+              "concepts/authentication",
+              "concepts/virtual-threads"
+            ]
+          },
+          {
+            "group": "Setup & Configuration",
+            "pages": [
+              "setup/installation",
+              "setup/configuration",
+              "setup/bridge-setup",
+              "setup/graalvm-native"
+            ]
+          },
+          {
+            "group": "Using HandsAI",
+            "pages": [
+              "guides/registering-tools",
+              "guides/importing-exporting",
+              "guides/managing-providers",
+              "guides/parameter-types"
+            ]
+          },
+          {
+            "group": "Use Cases",
+            "pages": [
+              "use-cases/overview",
+              "use-cases/weather-api",
+              "use-cases/social-media",
+              "use-cases/email",
+              "use-cases/search",
+              "use-cases/github"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "MCP Endpoints",
+            "pages": [
+              "api/mcp/overview",
+              "api/mcp/tools-list",
+              "api/mcp/tools-call"
+            ]
+          },
+          {
+            "group": "Admin API",
+            "pages": [
+              "api/admin/overview",
+              "api/admin/tools",
+              "api/admin/providers"
+            ]
+          },
+          {
+            "group": "Import/Export API",
+            "pages": [
+              "api/import-export/overview",
+              "api/import-export/export",
+              "api/import-export/import"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Contributing",
+            "pages": [
+              "dev/contributing",
+              "dev/tech-stack",
+              "dev/database-schema",
+              "dev/graalvm-compatibility"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Dynamic tool discovery via MCP protocol",
+    "Zero-code API registration through UI or JSON import",
+    "Native support for STRING, NUMBER, BOOLEAN, and ARRAY parameter types",
+    "OAuth2 and API Key authentication with automatic token refresh",
+    "GraalVM native compilation for sub-second startup times",
+    "Java 21 Virtual Threads for high concurrency",
+    "SQLite database with WAL mode for zero-configuration deployment",
+    "Intelligent caching of tool definitions"
+  ],
+  "publicApiSurface": [
+    "GET /mcp/tools/list - Discover available tools",
+    "POST /mcp/tools/call - Execute a tool",
+    "GET /admin/tools/api - List all registered tools",
+    "GET /admin/tools/api/{id} - Get tool details",
+    "DELETE /admin/tools/api/{id} - Remove a tool",
+    "GET /api/export/providers - Export provider configurations",
+    "POST /api/import/providers - Import provider configurations",
+    "GET /admin/providers - List API providers",
+    "POST /admin/providers - Create new provider",
+    "PUT /admin/providers/{id} - Update provider",
+    "DELETE /admin/providers/{id} - Delete provider"
+  ]
+}
